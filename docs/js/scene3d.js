@@ -17,6 +17,7 @@ class Scene3D {
     this._initScene();
     this._initLights();
     this._initPostSetup();
+    this.initLabelRenderer();
     this._bindEvents();
   }
 
@@ -26,8 +27,8 @@ class Scene3D {
     this.scene.background = new THREE.Color(0x0d0d1a);
     this.scene.fog = new THREE.FogExp2(0x0d0d1a, 0.035);
 
-    const w = this.container.clientWidth;
-    const h = this.container.clientHeight;
+    const w = this.container ? (this.container.clientWidth || window.innerWidth || 800) : (window.innerWidth || 800);
+    const h = this.container ? (this.container.clientHeight || window.innerHeight || 500) : (window.innerHeight || 500);
 
     this.camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 200);
     this.camera.position.set(0, 6, 16);
@@ -39,17 +40,23 @@ class Scene3D {
     this.renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping       = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.2;
-    this.container.appendChild(this.renderer.domElement);
+    if (this.container) {
+      this.container.appendChild(this.renderer.domElement);
+    } else {
+      document.body.appendChild(this.renderer.domElement);
+    }
 
     // OrbitControls
-    this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping  = true;
-    this.controls.dampingFactor  = 0.08;
-    this.controls.minDistance    = 4;
-    this.controls.maxDistance    = 40;
-    this.controls.maxPolarAngle  = Math.PI / 1.8;
-    this.controls.autoRotate     = true;
-    this.controls.autoRotateSpeed = 0.6;
+    if (typeof THREE.OrbitControls === 'function') {
+      this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+      this.controls.enableDamping  = true;
+      this.controls.dampingFactor  = 0.08;
+      this.controls.minDistance    = 4;
+      this.controls.maxDistance    = 40;
+      this.controls.maxPolarAngle  = Math.PI / 1.8;
+      this.controls.autoRotate     = true;
+      this.controls.autoRotateSpeed = 0.6;
+    }
 
     // Raycaster
     this.raycaster = new THREE.Raycaster();
@@ -332,13 +339,17 @@ class Scene3D {
   }
 
   _addLabel(text, mesh, x, z) {
-    const div = document.createElement('div');
-    div.className = 'label3d';
-    div.textContent = text;
-    const lbl = new THREE.CSS2DObject(div);
-    lbl.position.set(0, 1.4, 0);
-    mesh.add(lbl);
-    this.labels.push(lbl);
+    if (typeof THREE.CSS2DObject === 'function') {
+      try {
+        const div = document.createElement('div');
+        div.className = 'label3d';
+        div.textContent = text;
+        const lbl = new THREE.CSS2DObject(div);
+        lbl.position.set(0, 1.4, 0);
+        mesh.add(lbl);
+        this.labels.push(lbl);
+      } catch(e){}
+    }
   }
 
   _clearScene() {
@@ -399,9 +410,9 @@ class Scene3D {
         }
       }
 
-      this.controls.update();
-      this.labelRenderer.render(this.scene, this.camera);
-      this.renderer.render(this.scene, this.camera);
+      if (this.controls) this.controls.update();
+      if (this.labelRenderer) this.labelRenderer.render(this.scene, this.camera);
+      if (this.renderer) this.renderer.render(this.scene, this.camera);
     };
     animate();
   }
@@ -488,22 +499,32 @@ class Scene3D {
 
   // ── Resize ──────────────────────────────────────
   onResize() {
-    const w = this.container.clientWidth;
-    const h = this.container.clientHeight;
+    if (!this.container || !this.renderer || !this.camera) return;
+    const w = this.container.clientWidth || window.innerWidth || 800;
+    const h = this.container.clientHeight || window.innerHeight || 500;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
-    this.labelRenderer.setSize(w, h);
+    if (this.labelRenderer) this.labelRenderer.setSize(w, h);
   }
 
   // ── CSS2DRenderer Setup (called after DOM ready) ─
   initLabelRenderer() {
-    this.labelRenderer = new THREE.CSS2DRenderer();
-    this.labelRenderer.setSize(this.container.clientWidth, this.container.clientHeight);
-    this.labelRenderer.domElement.style.position = 'absolute';
-    this.labelRenderer.domElement.style.top      = '0';
-    this.labelRenderer.domElement.style.pointerEvents = 'none';
-    this.container.appendChild(this.labelRenderer.domElement);
+    if (this.labelRenderer) return;
+    if (typeof THREE.CSS2DRenderer === 'function' && this.container) {
+      try {
+        const w = this.container.clientWidth || window.innerWidth || 800;
+        const h = this.container.clientHeight || window.innerHeight || 500;
+        this.labelRenderer = new THREE.CSS2DRenderer();
+        this.labelRenderer.setSize(w, h);
+        this.labelRenderer.domElement.style.position = 'absolute';
+        this.labelRenderer.domElement.style.top      = '0';
+        this.labelRenderer.domElement.style.pointerEvents = 'none';
+        this.container.appendChild(this.labelRenderer.domElement);
+      } catch(e) {
+        console.warn('CSS2DRenderer init fallback:', e);
+      }
+    }
   }
 
   // ── Events ──────────────────────────────────────

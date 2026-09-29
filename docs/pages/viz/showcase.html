@@ -6,9 +6,12 @@
   <title>3D Product Showcase</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="../../css/style.css"/>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/renderers/CSS2DRenderer.js"></script>
+
+  <!-- Local vendor scripts with CDN fallbacks -->
+  <script src="../../js/vendor/three.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';"></script>
+  <script src="../../js/vendor/OrbitControls.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js';"></script>
+  <script src="../../js/vendor/CSS2DRenderer.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js';"></script>
+
   <script src="../../js/products-data.js"></script>
   <script src="../../js/sales-data.js"></script>
   <script src="../../js/shared-ui.js"></script>
@@ -52,42 +55,70 @@ const PROD   = getURLParam('product')|| '';
 
 // ── Update page title ──────────────────────────────
 const EMOJIS = { Smartphone:'📱', Laptop:'💻', TV:'📺', Headphones:'🎧', Tablet:'📱', Smartwatch:'⌚' };
-document.getElementById('page-title').textContent =
-  (EMOJIS[CAT]||'🧊') + ' ' + (CAT === 'All' ? 'All Products' : CAT + ' Showcase');
+const titleEl = document.getElementById('page-title');
+if (titleEl) {
+  titleEl.textContent = (EMOJIS[CAT]||'🧊') + ' ' + (CAT === 'All' ? 'All Products' : CAT + ' Showcase');
+}
 
 // ── Filter Products ────────────────────────────────
 function filterProducts() {
+  if (typeof PRODUCTS_DATA === 'undefined') return [];
   let data = PRODUCTS_DATA;
-  if (CAT && CAT !== 'All') data = data.filter(p => p.category === CAT);
+  if (CAT && CAT !== 'All') data = data.filter(p => p.category.toLowerCase() === CAT.toLowerCase());
   if (BRAND) data = data.filter(p => p.brand.toLowerCase() === BRAND.toLowerCase());
   if (PROD)  data = data.filter(p => p.name.toLowerCase().includes(PROD.toLowerCase()));
   return data;
 }
 
-// ── Boot ───────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-  const scene3d = new Scene3D('canvas-container');
-  window._scene3d = scene3d;
-  scene3d.initLabelRenderer();
-  scene3d.loadProducts(filterProducts());
+// ── Hide Loader Safely ─────────────────────────────
+function hideLoader() {
+  const loader = document.getElementById('loading');
+  if (loader && !loader.classList.contains('hidden')) {
+    loader.classList.add('hidden');
+  }
+}
 
-  setTimeout(() => {
-    document.getElementById('loading').classList.add('hidden');
-  }, 700);
+// ── Boot Routine ───────────────────────────────────
+function bootShowcase() {
+  try {
+    if (typeof THREE === 'undefined') {
+      console.warn('Three.js not loaded yet, retrying...');
+      setTimeout(bootShowcase, 150);
+      return;
+    }
+    const scene3d = new Scene3D('canvas-container');
+    window._scene3d = scene3d;
+    scene3d.loadProducts(filterProducts());
+  } catch(err) {
+    console.error('Error starting 3D Showcase:', err);
+  } finally {
+    setTimeout(hideLoader, 300);
+  }
 
   // PBI postMessage listener
   window.addEventListener('message', (ev) => {
     try {
       const d = JSON.parse(ev.data);
-      if (d.type === 'pbi-products' && Array.isArray(d.products)) {
-        scene3d.loadProducts(d.products.filter(p =>
-          (!CAT || CAT === 'All' || p.category === CAT)
+      if (d.type === 'pbi-products' && Array.isArray(d.products) && window._scene3d) {
+        window._scene3d.loadProducts(d.products.filter(p =>
+          (!CAT || CAT === 'All' || p.category.toLowerCase() === CAT.toLowerCase())
         ));
       }
-      if (d.type === 'theme') scene3d.setLightMode(d.light);
+      if (d.type === 'theme' && window._scene3d) {
+        window._scene3d.setLightMode(d.light);
+      }
     } catch(e) {}
   });
-});
+}
+
+// Ensure execution whether DOMContentLoaded fired or not
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootShowcase);
+} else {
+  bootShowcase();
+}
+// Unconditional fallback timer
+setTimeout(hideLoader, 1500);
 </script>
 </body>
 </html>
