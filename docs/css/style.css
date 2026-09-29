@@ -1,0 +1,221 @@
+/* =====================================================
+   3D Products Dashboard — Global Styles
+   Supports: Dark / Light mode, responsive layout
+   ===================================================== */
+
+:root {
+  --bg: #0d0d1a;
+  --bg2: #12122a;
+  --surface: #1a1a35;
+  --border: #2a2a55;
+  --text: #e8e8ff;
+  --text-muted: #8888bb;
+  --accent: #6c63ff;
+  --accent2: #ff6584;
+  --accent3: #43e97b;
+  --card: #1e1e40;
+  --shadow: rgba(108,99,255,0.25);
+  --tooltip-bg: rgba(20,20,50,0.97);
+  --nav-height: 56px;
+  --transition: 0.3s cubic-bezier(.4,0,.2,1);
+}
+
+body.light-mode {
+  --bg: #f0f2ff;
+  --bg2: #e8eaff;
+  --surface: #ffffff;
+  --border: #d0d4ff;
+  --text: #1a1a3a;
+  --text-muted: #555588;
+  --accent: #5a52e8;
+  --accent2: #e04060;
+  --accent3: #2db866;
+  --card: #ffffff;
+  --shadow: rgba(90,82,232,0.18);
+  --tooltip-bg: rgba(255,255,255,0.98);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  font-family: 'Inter', 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  transition: background var(--transition), color var(--transition);
+}
+
+/* ── Top Navigation Bar ── */
+#topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--nav-height);
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 20px var(--shadow);
+}
+
+#topbar .logo {
+  font-size: 15px; font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+
+/* Category Nav Pills */
+.cat-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px; font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+.cat-pill:hover { border-color: var(--accent); color: var(--accent); background: rgba(108,99,255,0.08); }
+.cat-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 0 12px var(--shadow); }
+
+/* Mode Toggle */
+#mode-toggle {
+  margin-left: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  padding: 6px 14px 6px 10px;
+  display: flex; align-items: center; gap: 7px;
+  cursor: pointer;
+  font-size: 12px; font-weight: 600;
+  color: var(--text);
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+#mode-toggle:hover { border-color: var(--accent); background: var(--card); }
+#mode-toggle .icon { font-size: 16px; transition: transform 0.4s; }
+#mode-toggle:hover .icon { transform: rotate(20deg); }
+
+/* ── 3D Canvas Container ── */
+#canvas-container {
+  position: fixed;
+  top: var(--nav-height); left: 0; right: 0; bottom: 0;
+}
+#canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+
+/* ── Loading Overlay ── */
+#loading {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px;
+  z-index: 999;
+  transition: opacity 0.5s;
+}
+#loading.hidden { opacity: 0; pointer-events: none; }
+.spinner {
+  width: 44px; height: 44px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+
+/* ── Tooltip ── */
+#tooltip {
+  position: fixed;
+  background: var(--tooltip-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  pointer-events: none;
+  z-index: 200;
+  max-width: 240px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  transition: opacity 0.18s, transform 0.18s;
+  backdrop-filter: blur(8px);
+}
+#tooltip.visible { opacity: 1; transform: translateY(0) scale(1); }
+
+.tt-name {
+  font-size: 14px; font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.tt-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 11px; margin-top: 4px;
+}
+.tt-label { color: var(--text-muted); }
+.tt-value { color: var(--text); font-weight: 600; text-align: right; }
+.tt-price {
+  font-size: 13px; font-weight: 700;
+  color: var(--accent3);
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+/* ── Info Panel (bottom-left) ── */
+#info-panel {
+  position: fixed;
+  bottom: 16px; left: 16px;
+  background: var(--tooltip-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  z-index: 150;
+  backdrop-filter: blur(8px);
+  line-height: 1.8;
+}
+#info-panel strong { color: var(--accent); }
+
+/* ── Count Badge ── */
+#count-badge {
+  position: fixed;
+  bottom: 16px; right: 16px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 20px;
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  z-index: 150;
+  box-shadow: 0 4px 16px var(--shadow);
+}
+
+/* ── Product Name Labels (CSS3D) ── */
+.label3d {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--tooltip-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }

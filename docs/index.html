@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Products Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- Three.js r158 (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/renderers/CSS2DRenderer.js"></script>
+</head>
+<body>
+
+<!-- ── Loading Overlay ── -->
+<div id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">Initialising 3D Scene…</div>
+</div>
+
+<!-- ── Tooltip ── -->
+<div id="tooltip"></div>
+
+<!-- ── Top Navigation ── -->
+<nav id="topbar">
+  <span class="logo">🧊 3D Products</span>
+
+  <button class="cat-pill active" data-cat="All"         onclick="switchCat('All',this)">All</button>
+  <button class="cat-pill"        data-cat="Smartphone"  onclick="switchCat('Smartphone',this)">📱 Smartphones</button>
+  <button class="cat-pill"        data-cat="Laptop"      onclick="switchCat('Laptop',this)">💻 Laptops</button>
+  <button class="cat-pill"        data-cat="TV"          onclick="switchCat('TV',this)">📺 TVs</button>
+  <button class="cat-pill"        data-cat="Headphones"  onclick="switchCat('Headphones',this)">🎧 Headphones</button>
+  <button class="cat-pill"        data-cat="Tablet"      onclick="switchCat('Tablet',this)">📱 Tablets</button>
+  <button class="cat-pill"        data-cat="Smartwatch"  onclick="switchCat('Smartwatch',this)">⌚ Watches</button>
+
+  <button id="mode-toggle" onclick="toggleMode()">
+    <span class="icon" id="mode-icon">🌙</span>
+    <span id="mode-label">Dark Mode</span>
+  </button>
+</nav>
+
+<!-- ── 3D Canvas ── -->
+<div id="canvas-container"></div>
+
+<!-- ── Info Panel ── -->
+<div id="info-panel">
+  <strong>🖱 Drag</strong> to orbit &nbsp;|&nbsp;
+  <strong>Scroll</strong> to zoom &nbsp;|&nbsp;
+  <strong>Hover</strong> a product for details
+</div>
+
+<!-- ── Count Badge ── -->
+<div id="count-badge">54 Products</div>
+
+<!-- Product Data & Scene Engine -->
+<script src="js/products-data.js"></script>
+<script src="js/scene3d.js"></script>
+
+<script>
+  // ── Globals ──────────────────────────────────────
+  let scene3d  = null;
+  let lightMode = false;
+  let currentCat = 'All';
+
+  // ── Boot ─────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    scene3d = new Scene3D('canvas-container');
+    scene3d.initLabelRenderer();
+
+    // Load ALL products on start
+    scene3d.loadProducts(PRODUCTS_DATA);
+
+    // Hide loader
+    setTimeout(() => {
+      document.getElementById('loading').classList.add('hidden');
+    }, 800);
+  });
+
+  // ── Category Switch ──────────────────────────────
+  function switchCat(cat, btn) {
+    currentCat = cat;
+    document.querySelectorAll('.cat-pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    // Show loading briefly
+    const loading = document.getElementById('loading');
+    loading.classList.remove('hidden');
+
+    setTimeout(() => {
+      const filtered = cat === 'All'
+        ? PRODUCTS_DATA
+        : PRODUCTS_DATA.filter(p => p.category === cat);
+      scene3d.loadProducts(filtered);
+      loading.classList.add('hidden');
+    }, 300);
+  }
+
+  // ── Dark / Light Toggle ───────────────────────────
+  function toggleMode() {
+    lightMode = !lightMode;
+    document.body.classList.toggle('light-mode', lightMode);
+    scene3d.setLightMode(lightMode);
+    document.getElementById('mode-icon').textContent  = lightMode ? '☀️' : '🌙';
+    document.getElementById('mode-label').textContent = lightMode ? 'Light Mode' : 'Dark Mode';
+  }
+
+  // ── Power BI iframe message listener ────────────
+  // Receives JSON from Power BI HTML Content visual
+  window.addEventListener('message', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data && data.type === 'pbi-filter') {
+        const cat = data.category || 'All';
+        const btn = document.querySelector(`[data-cat="${cat}"]`);
+        if (btn) switchCat(cat, btn);
+      }
+      if (data && data.type === 'pbi-products' && Array.isArray(data.products)) {
+        scene3d.loadProducts(data.products);
+      }
+    } catch(e) { /* ignore non-JSON */ }
+  });
+</script>
+</body>
+</html>

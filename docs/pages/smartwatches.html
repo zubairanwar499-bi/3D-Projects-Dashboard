@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smartwatch — 3D Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/renderers/CSS2DRenderer.js"></script>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div><div class="loading-text">Loading Smartwatch 3D Scene…</div></div>
+<div id="tooltip"></div>
+<nav id="topbar">
+  <span class="logo">⌚ Smartwatch</span>
+  <a href="../index.html" style="margin-left:auto;text-decoration:none;">
+    <button class="cat-pill">← All Products</button>
+  </a>
+  <button id="mode-toggle" onclick="toggleMode()">
+    <span class="icon" id="mode-icon">🌙</span>
+    <span id="mode-label">Dark Mode</span>
+  </button>
+</nav>
+<div id="canvas-container"></div>
+<div id="info-panel"><strong>🖱 Drag</strong> to orbit &nbsp;|&nbsp; <strong>Scroll</strong> to zoom &nbsp;|&nbsp; <strong>Hover</strong> a product</div>
+<div id="count-badge">0 Products</div>
+<script src="../js/products-data.js"></script>
+<script src="../js/scene3d.js"></script>
+<script>
+  let scene3d = null;
+  let lightMode = false;
+  window.addEventListener('DOMContentLoaded', () => {
+    scene3d = new Scene3D('canvas-container');
+    scene3d.initLabelRenderer();
+    const products = BY_CATEGORY['Smartwatch'] || [];
+    scene3d.loadProducts(products);
+    setTimeout(() => { document.getElementById('loading').classList.add('hidden'); }, 800);
+  });
+  function toggleMode() {
+    lightMode = !lightMode;
+    document.body.classList.toggle('light-mode', lightMode);
+    scene3d.setLightMode(lightMode);
+    document.getElementById('mode-icon').textContent  = lightMode ? '☀️' : '🌙';
+    document.getElementById('mode-label').textContent = lightMode ? 'Light Mode' : 'Dark Mode';
+  }
+  window.addEventListener('message', (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data && data.type === 'pbi-products' && Array.isArray(data.products)) {
+        scene3d.loadProducts(data.products.filter(p => p.category === 'Smartwatch'));
+      }
+    } catch(e) {}
+  });
+</script>
+</body>
+</html>
