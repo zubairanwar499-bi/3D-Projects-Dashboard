@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>3D Inventory Stock Gauges</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../../css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="../../js/sales-data.js"></script>
+  <script src="../../js/shared-ui.js"></script>
+  <style>
+    .stock-legend {
+      position: fixed;
+      top: 68px;
+      right: 16px;
+      background: var(--tooltip-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 11px;
+      color: var(--text);
+      z-index: 90;
+      backdrop-filter: blur(8px);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .badge-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    .dot-green { background: #43e97b; box-shadow: 0 0 6px #43e97b; }
+    .dot-yellow { background: #ffd166; box-shadow: 0 0 6px #ffd166; }
+    .dot-red { background: #ff6584; box-shadow: 0 0 6px #ff6584; }
+  </style>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div><div class="loading-text">Calibrating 3D Stock Gauges…</div></div>
+<div id="tooltip"></div>
+
+<nav id="topbar">
+  <span class="logo" id="stock-title">📦 3D Inventory & Stock Gauges</span>
+  <button id="mode-toggle" onclick="toggleMode()" style="margin-left:auto">
+    <span class="icon" id="mode-icon">🌙</span>
+    <span id="mode-label">Dark</span>
+  </button>
+</nav>
+
+<div class="stock-legend">
+  <div><span class="badge-dot dot-green"></span>Optimal (&gt; 8,000 units)</div>
+  <div><span class="badge-dot dot-yellow"></span>Moderate (3k - 8k units)</div>
+  <div><span class="badge-dot dot-red"></span>Critical (&lt; 3,000 units)</div>
+</div>
+
+<div id="canvas-container"></div>
+<div id="info-panel">
+  <strong>🖱 Drag</strong> orbit &nbsp;|&nbsp; <strong>Hover</strong> cylinder to review inventory status
+</div>
+<div id="count-badge">0 Products</div>
+
+<script>
+  const CAT   = getURLParam('cat') || '';
+  const BRAND = getURLParam('brand') || '';
+
+  if (CAT) {
+    document.getElementById('stock-title').textContent = `📦 ${CAT} - Stock Health`;
+  }
+
+  let scene, camera, renderer, controls, raycaster, mouse;
+  let gauges = [];
+  let hoveredGauge = null;
+
+  function init() {
+    const container = document.getElementById('canvas-container');
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0d0d1a);
+    scene.fog = new THREE.FogExp2(0x0d0d1a, 0.035);
+
+    camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 100);
+    camera.position.set(0, 9, 15);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.07;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.5;
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.3);
+    dir.position.set(10, 20, 10);
+    dir.castShadow = true;
+    scene.add(dir);
+
+    const rim = new THREE.PointLight(0x43e97b, 1.5, 30);
+    rim.position.set(0, 5, 0);
+    scene.add(rim);
+
+    // Floor
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(60, 60),
+      new THREE.MeshStandardMaterial({ color: 0x090918, roughness: 0.9 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const grid = new THREE.GridHelper(50, 50, 0x2a2a55, 0x151530);
+    grid.position.y = 0.01;
+    scene.add(grid);
+
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2(-9999, -9999);
+
+    buildGauges();
+    bindEvents();
+    animate();
+    setTimeout(() => document.getElementById('loading').classList.add('hidden'), 500);
+  }
+
+  function getStatusInfo(stock) {
+    if (stock >= 8000) return { color: 0x43e97b, label: 'Optimal Stock', status: 'Healthy' };
+    if (stock >= 3000) return { color: 0xffd166, label: 'Moderate Stock', status: 'Warning' };
+    return { color: 0xff6584, label: 'Critical Stock', status: 'Reorder Now' };
+  }
+
+  function buildGauges() {
+    let list = getSalesByCategory(CAT);
+    if (BRAND) {
+      list = list.filter(item => item.brand.toLowerCase() === BRAND.toLowerCase());
+    }
+    document.getElementById('count-badge').textContent = `${list.length} Products`;
+
+    if (list.length === 0) return;
+
+    const maxStock = Math.max(...list.map(d => d.stock));
+    const maxHeight = 5.0;
+    const n = list.length;
+    const cols = Math.min(n, Math.ceil(Math.sqrt(n * 1.5)));
+    const rows = Math.ceil(n / cols);
+    const spacing = 2.6;
+
+    list.forEach((item, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = (col - (cols - 1) / 2) * spacing;
+      const z = (row - (rows - 1) / 2) * spacing;
+
+      const info = getStatusInfo(item.stock);
+      const h = Math.max(0.4, (item.stock / maxStock) * maxHeight);
+
+      const group = new THREE.Group();
+      group.position.set(x, 0, z);
+
+      // Base Pedestal
+      const baseGeo = new THREE.CylinderGeometry(0.7, 0.75, 0.15, 32);
+      const baseMat = new THREE.MeshStandardMaterial({ color: 0x1f1f3a, metalness: 0.6, roughness: 0.4 });
+      const base = new THREE.Mesh(baseGeo, baseMat);
+      base.position.y = 0.075;
+      base.receiveShadow = true;
+      group.add(base);
+
+      // Stock Liquid Core
+      const coreGeo = new THREE.CylinderGeometry(0.5, 0.5, h, 32);
+      coreGeo.translate(0, h / 2, 0);
+      const coreMat = new THREE.MeshStandardMaterial({
+        color: info.color,
+        roughness: 0.2,
+        metalness: 0.3,
+        emissive: new THREE.Color(info.color).multiplyScalar(0.4)
+      });
+      const core = new THREE.Mesh(coreGeo, coreMat);
+      core.position.y = 0.15;
+      core.castShadow = true;
+      group.add(core);
+
+      // Outer Transparent Glass Shield
+      const glassGeo = new THREE.CylinderGeometry(0.58, 0.58, maxHeight + 0.2, 32, 1, true);
+      glassGeo.translate(0, (maxHeight + 0.2) / 2, 0);
+      const glassMat = new THREE.MeshStandardMaterial({
+        color: 0x6677aa,
+        roughness: 0.1,
+        metalness: 0.8,
+        transparent: true,
+        opacity: 0.2,
+        side: THREE.DoubleSide
+      });
+      const glass = new THREE.Mesh(glassGeo, glassMat);
+      glass.position.y = 0.15;
+      group.add(glass);
+
+      // Floating short label
+      const shortName = item.name.length > 13 ? item.name.substring(0, 11) + '…' : item.name;
+      const sprite = makeTextSprite(`${shortName} (${item.stock.toLocaleString()})`, {
+        size: 80, width: 2.4, height: 0.45, color: '#ffffff', bg: 'rgba(15,15,35,0.85)'
+      });
+      sprite.position.set(0, maxHeight + 1.1, 0);
+      group.add(sprite);
+
+      group.userData = {
+        item: item,
+        info: info,
+        coreMesh: core,
+        origColor: info.color
+      };
+
+      scene.add(group);
+      gauges.push(core);
+    });
+  }
+
+  function bindEvents() {
+    window.addEventListener('resize', () => {
+      const c = document.getElementById('canvas-container');
+      camera.aspect = c.clientWidth / c.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(c.clientWidth, c.clientHeight);
+    });
+
+    const dom = renderer.domElement;
+    dom.addEventListener('mousemove', e => {
+      const rect = dom.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      if (hoveredGauge) {
+        const item = hoveredGauge.parent.userData.item;
+        const info = hoveredGauge.parent.userData.info;
+        const html = `
+          <div class="tt-name">${item.name}</div>
+          <div class="tt-row"><span class="tt-label">Brand</span><span class="tt-value">${item.brand}</span></div>
+          <div class="tt-row"><span class="tt-label">Category</span><span class="tt-value">${item.category}</span></div>
+          <div class="tt-row"><span class="tt-label">Stock Status</span><span class="tt-value" style="color:#${info.color.toString(16)}">${info.status}</span></div>
+          <div class="tt-row"><span class="tt-label">Units Left</span><span class="tt-value">${item.stock.toLocaleString()} units</span></div>
+          <div class="tt-price">${info.label}</div>
+        `;
+        showTooltip(html, e.clientX, e.clientY);
+      }
+    });
+
+    dom.addEventListener('mouseleave', () => {
+      mouse.set(-9999, -9999);
+      hideTooltip();
+    });
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(gauges);
+
+    if (hits.length > 0) {
+      const target = hits[0].object;
+      if (hoveredGauge !== target) {
+        if (hoveredGauge) unhighlight(hoveredGauge);
+        hoveredGauge = target;
+        highlight(hoveredGauge);
+      }
+    } else {
+      if (hoveredGauge) {
+        unhighlight(hoveredGauge);
+        hoveredGauge = null;
+        hideTooltip();
+      }
+    }
+
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  function highlight(mesh) {
+    mesh.material.emissiveIntensity = 0.9;
+    mesh.parent.scale.set(1.1, 1.05, 1.1);
+    document.body.style.cursor = 'pointer';
+  }
+
+  function unhighlight(mesh) {
+    mesh.material.emissiveIntensity = 0.4;
+    mesh.parent.scale.set(1, 1, 1);
+    document.body.style.cursor = 'default';
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

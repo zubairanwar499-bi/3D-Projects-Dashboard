@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>3D Product Showcase</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../../css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/renderers/CSS2DRenderer.js"></script>
+  <script src="../../js/products-data.js"></script>
+  <script src="../../js/sales-data.js"></script>
+  <script src="../../js/shared-ui.js"></script>
+  <style>
+    .label3d {
+      font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 700;
+      color: var(--text); background: var(--tooltip-bg);
+      border: 1px solid var(--border); border-radius: 5px;
+      padding: 2px 7px; white-space: nowrap; pointer-events: none; opacity: 0.92;
+    }
+  </style>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div><div class="loading-text">Building 3D Models…</div></div>
+<div id="tooltip"></div>
+
+<nav id="topbar">
+  <a href="../../index.html" style="text-decoration:none">
+    <button class="cat-pill">← All</button>
+  </a>
+  <span class="logo" id="page-title">🧊 3D Showcase</span>
+  <button id="mode-toggle" onclick="toggleMode()" style="margin-left:auto">
+    <span class="icon" id="mode-icon">🌙</span>
+    <span id="mode-label">Dark</span>
+  </button>
+</nav>
+
+<div id="canvas-container"></div>
+<div id="info-panel">
+  <strong>🖱 Drag</strong> orbit &nbsp;|&nbsp; <strong>Scroll</strong> zoom &nbsp;|&nbsp;
+  <strong>Hover</strong> product for specs
+</div>
+<div id="count-badge">0 Products</div>
+
+<script src="../../js/scene3d.js"></script>
+<script>
+// ── URL Params ─────────────────────────────────────
+const CAT    = getURLParam('cat')    || 'All';
+const BRAND  = getURLParam('brand')  || '';
+const PROD   = getURLParam('product')|| '';
+
+// ── Update page title ──────────────────────────────
+const EMOJIS = { Smartphone:'📱', Laptop:'💻', TV:'📺', Headphones:'🎧', Tablet:'📱', Smartwatch:'⌚' };
+document.getElementById('page-title').textContent =
+  (EMOJIS[CAT]||'🧊') + ' ' + (CAT === 'All' ? 'All Products' : CAT + ' Showcase');
+
+// ── Filter Products ────────────────────────────────
+function filterProducts() {
+  let data = PRODUCTS_DATA;
+  if (CAT && CAT !== 'All') data = data.filter(p => p.category === CAT);
+  if (BRAND) data = data.filter(p => p.brand.toLowerCase() === BRAND.toLowerCase());
+  if (PROD)  data = data.filter(p => p.name.toLowerCase().includes(PROD.toLowerCase()));
+  return data;
+}
+
+// ── Boot ───────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const scene3d = new Scene3D('canvas-container');
+  window._scene3d = scene3d;
+  scene3d.initLabelRenderer();
+  scene3d.loadProducts(filterProducts());
+
+  setTimeout(() => {
+    document.getElementById('loading').classList.add('hidden');
+  }, 700);
+
+  // PBI postMessage listener
+  window.addEventListener('message', (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d.type === 'pbi-products' && Array.isArray(d.products)) {
+        scene3d.loadProducts(d.products.filter(p =>
+          (!CAT || CAT === 'All' || p.category === CAT)
+        ));
+      }
+      if (d.type === 'theme') scene3d.setLightMode(d.light);
+    } catch(e) {}
+  });
+});
+</script>
+</body>
+</html>

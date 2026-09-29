@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>3D Revenue Bar Chart</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../../css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="../../js/sales-data.js"></script>
+  <script src="../../js/shared-ui.js"></script>
+  <style>
+    .legend-box {
+      position: fixed;
+      top: 68px;
+      right: 16px;
+      background: var(--tooltip-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 11px;
+      color: var(--text);
+      z-index: 90;
+      backdrop-filter: blur(8px);
+    }
+  </style>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div><div class="loading-text">Generating 3D Revenue Bars…</div></div>
+<div id="tooltip"></div>
+
+<nav id="topbar">
+  <span class="logo" id="chart-title">💰 3D Revenue Analyzer</span>
+  <button id="mode-toggle" onclick="toggleMode()" style="margin-left:auto">
+    <span class="icon" id="mode-icon">🌙</span>
+    <span id="mode-label">Dark</span>
+  </button>
+</nav>
+
+<div class="legend-box" id="legend">Bar Height = Total Revenue (PKR)</div>
+<div id="canvas-container"></div>
+<div id="info-panel">
+  <strong>🖱 Drag</strong> to orbit &nbsp;|&nbsp; <strong>Scroll</strong> to zoom &nbsp;|&nbsp; <strong>Hover</strong> bar for details
+</div>
+<div id="count-badge">0 Products</div>
+
+<script>
+  const CAT   = getURLParam('cat') || '';
+  const BRAND = getURLParam('brand') || '';
+
+  if (CAT) {
+    document.getElementById('chart-title').textContent = `💰 ${CAT} - 3D Revenue`;
+  }
+
+  let scene, camera, renderer, controls, raycaster, mouse;
+  let bars = [];
+  let hoveredBar = null;
+  let particles;
+
+  function init() {
+    const container = document.getElementById('canvas-container');
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0d0d1a);
+    scene.fog = new THREE.FogExp2(0x0d0d1a, 0.03);
+
+    camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 100);
+    camera.position.set(0, 7, 14);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.07;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.5;
+    controls.maxPolarAngle = Math.PI / 2.05;
+
+    // Lights
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(10, 20, 10);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.PointLight(0x6c63ff, 1.5, 40);
+    fillLight.position.set(-10, 8, -5);
+    scene.add(fillLight);
+
+    // Floor & Grid
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(50, 50),
+      new THREE.MeshStandardMaterial({ color: 0x0a0a1a, roughness: 0.85, metalness: 0.1 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    const grid = new THREE.GridHelper(40, 40, 0x333366, 0x1a1a33);
+    grid.position.y = 0.01;
+    scene.add(grid);
+
+    // Particles
+    const pGeo = new THREE.BufferGeometry();
+    const pCount = 200;
+    const pCoords = new Float32Array(pCount * 3);
+    for (let i = 0; i < pCount * 3; i += 3) {
+      pCoords[i] = (Math.random() - 0.5) * 40;
+      pCoords[i+1] = Math.random() * 15;
+      pCoords[i+2] = (Math.random() - 0.5) * 40;
+    }
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pCoords, 3));
+    particles = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0x6c63ff, size: 0.15, transparent: true, opacity: 0.4 }));
+    scene.add(particles);
+
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2(-9999, -9999);
+
+    buildBars();
+    bindEvents();
+    animate();
+    setTimeout(() => document.getElementById('loading').classList.add('hidden'), 500);
+  }
+
+  function buildBars() {
+    let list = getSalesByCategory(CAT);
+    if (BRAND) {
+      list = list.filter(item => item.brand.toLowerCase() === BRAND.toLowerCase());
+    }
+    document.getElementById('count-badge').textContent = `${list.length} Products`;
+
+    if (list.length === 0) return;
+
+    const maxRev = Math.max(...list.map(d => d.revenue));
+    const maxHeight = 6;
+    const n = list.length;
+    const cols = Math.min(n, Math.ceil(Math.sqrt(n * 1.6)));
+    const rows = Math.ceil(n / cols);
+    const spacingX = 2.4;
+    const spacingZ = 2.4;
+
+    list.forEach((item, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = (col - (cols - 1) / 2) * spacingX;
+      const z = (row - (rows - 1) / 2) * spacingZ;
+
+      const barHeight = Math.max(0.4, (item.revenue / maxRev) * maxHeight);
+      const bColor = brandColor(item.brand);
+
+      const geo = new THREE.BoxGeometry(0.9, barHeight, 0.9);
+      geo.translate(0, barHeight / 2, 0);
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: bColor,
+        roughness: 0.35,
+        metalness: 0.45,
+        emissive: new THREE.Color(bColor).multiplyScalar(0.2)
+      });
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, 0, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData = {
+        item: item,
+        origColor: bColor,
+        barHeight: barHeight
+      };
+
+      // Top Cap Accent
+      const capGeo = new THREE.BoxGeometry(0.92, 0.08, 0.92);
+      const capMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const cap = new THREE.Mesh(capGeo, capMat);
+      cap.position.y = barHeight + 0.04;
+      mesh.add(cap);
+
+      // Label sprite
+      const shortName = item.name.length > 14 ? item.name.substring(0, 12) + '…' : item.name;
+      const sprite = makeTextSprite(shortName, { size: 90, width: 2.2, height: 0.45, bg: 'rgba(10,10,25,0.85)' });
+      sprite.position.set(0, barHeight + 0.6, 0);
+      mesh.add(sprite);
+
+      scene.add(mesh);
+      bars.push(mesh);
+    });
+  }
+
+  function bindEvents() {
+    window.addEventListener('resize', () => {
+      const c = document.getElementById('canvas-container');
+      camera.aspect = c.clientWidth / c.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(c.clientWidth, c.clientHeight);
+    });
+
+    const dom = renderer.domElement;
+    dom.addEventListener('mousemove', e => {
+      const rect = dom.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      if (hoveredBar) {
+        const item = hoveredBar.userData.item;
+        const html = `
+          <div class="tt-name">${item.name}</div>
+          <div class="tt-row"><span class="tt-label">Brand</span><span class="tt-value">${item.brand}</span></div>
+          <div class="tt-row"><span class="tt-label">Category</span><span class="tt-value">${item.category}</span></div>
+          <div class="tt-row"><span class="tt-label">Units Sold</span><span class="tt-value">${item.units.toLocaleString()}</span></div>
+          <div class="tt-row"><span class="tt-label">Avg Rating</span><span class="tt-value">★ ${item.rating.toFixed(2)}</span></div>
+          <div class="tt-price">${fmtPKR(item.revenue)}</div>
+        `;
+        showTooltip(html, e.clientX, e.clientY);
+      }
+    });
+
+    dom.addEventListener('mouseleave', () => {
+      mouse.set(-9999, -9999);
+      hideTooltip();
+    });
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    if (particles) particles.rotation.y += 0.001;
+
+    // Raycast hover
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(bars);
+
+    if (hits.length > 0) {
+      const target = hits[0].object;
+      if (hoveredBar !== target) {
+        if (hoveredBar) unhighlight(hoveredBar);
+        hoveredBar = target;
+        highlight(hoveredBar);
+      }
+    } else {
+      if (hoveredBar) {
+        unhighlight(hoveredBar);
+        hoveredBar = null;
+        hideTooltip();
+      }
+    }
+
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  function highlight(mesh) {
+    mesh.material.emissive.setHex(0x6c63ff);
+    mesh.material.emissiveIntensity = 0.8;
+    mesh.scale.set(1.08, 1.05, 1.08);
+    document.body.style.cursor = 'pointer';
+  }
+
+  function unhighlight(mesh) {
+    mesh.material.emissive.setHex(mesh.userData.origColor);
+    mesh.material.emissiveIntensity = 0.2;
+    mesh.scale.set(1, 1, 1);
+    document.body.style.cursor = 'default';
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

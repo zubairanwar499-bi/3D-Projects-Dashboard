@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>3D Scatter Analysis</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="../../css/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="../../js/products-data.js"></script>
+  <script src="../../js/sales-data.js"></script>
+  <script src="../../js/shared-ui.js"></script>
+  <style>
+    .axis-legend {
+      position: fixed;
+      top: 68px;
+      right: 16px;
+      background: var(--tooltip-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 11px;
+      color: var(--text);
+      z-index: 90;
+      backdrop-filter: blur(8px);
+      line-height: 1.6;
+    }
+    .axis-red { color: #ff5252; font-weight: 700; }
+    .axis-green { color: #4caf50; font-weight: 700; }
+    .axis-blue { color: #448aff; font-weight: 700; }
+  </style>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div><div class="loading-text">Constructing 3D Scatter Matrix…</div></div>
+<div id="tooltip"></div>
+
+<nav id="topbar">
+  <span class="logo" id="scatter-title">📊 3D Price vs Rating vs Units</span>
+  <button id="mode-toggle" onclick="toggleMode()" style="margin-left:auto">
+    <span class="icon" id="mode-icon">🌙</span>
+    <span id="mode-label">Dark</span>
+  </button>
+</nav>
+
+<div class="axis-legend">
+  <div><span class="axis-red">X Axis:</span> Price (PKR)</div>
+  <div><span class="axis-green">Y Axis:</span> Rating (1-5)</div>
+  <div><span class="axis-blue">Z Axis:</span> Units Sold</div>
+  <div><small>Sphere Size = Total Revenue</small></div>
+</div>
+
+<div id="canvas-container"></div>
+<div id="info-panel">
+  <strong>🖱 Drag</strong> to orbit &nbsp;|&nbsp; <strong>Hover</strong> sphere for multi-metric stats
+</div>
+<div id="count-badge">0 Products</div>
+
+<script>
+  const CAT   = getURLParam('cat') || '';
+  const BRAND = getURLParam('brand') || '';
+
+  if (CAT) {
+    document.getElementById('scatter-title').textContent = `📊 ${CAT} - 3D Scatter`;
+  }
+
+  let scene, camera, renderer, controls, raycaster, mouse;
+  let spheres = [];
+  let hoveredSphere = null;
+
+  function init() {
+    const container = document.getElementById('canvas-container');
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0d0d1a);
+    scene.fog = new THREE.FogExp2(0x0d0d1a, 0.025);
+
+    camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 100);
+    camera.position.set(12, 10, 16);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h);
+    container.appendChild(renderer.domElement);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.07;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.4;
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+    dir.position.set(15, 25, 15);
+    scene.add(dir);
+
+    const backLight = new THREE.PointLight(0x6c63ff, 2, 40);
+    backLight.position.set(-10, 10, -10);
+    scene.add(backLight);
+
+    // Coordinate Grid Base
+    const grid = new THREE.GridHelper(24, 24, 0x444477, 0x222244);
+    grid.position.set(6, 0, 6);
+    scene.add(grid);
+
+    drawAxes();
+    buildScatter();
+    bindEvents();
+    animate();
+    setTimeout(() => document.getElementById('loading').classList.add('hidden'), 500);
+  }
+
+  function drawAxes() {
+    const origin = new THREE.Vector3(0, 0, 0);
+
+    // Red X
+    const xGeo = new THREE.BufferGeometry().setFromPoints([origin, new THREE.Vector3(14, 0, 0)]);
+    scene.add(new THREE.Line(xGeo, new THREE.LineBasicMaterial({ color: 0xff5252, linewidth: 2 })));
+
+    // Green Y
+    const yGeo = new THREE.BufferGeometry().setFromPoints([origin, new THREE.Vector3(0, 8, 0)]);
+    scene.add(new THREE.Line(yGeo, new THREE.LineBasicMaterial({ color: 0x4caf50, linewidth: 2 })));
+
+    // Blue Z
+    const zGeo = new THREE.BufferGeometry().setFromPoints([origin, new THREE.Vector3(0, 0, 14)]);
+    scene.add(new THREE.Line(zGeo, new THREE.LineBasicMaterial({ color: 0x448aff, linewidth: 2 })));
+
+    // Sprites on axes
+    const sX = makeTextSprite('Price →', { color: '#ff5252', bg: 'rgba(20,20,40,0.85)', width: 1.8, height: 0.4 });
+    sX.position.set(14.8, 0, 0);
+    scene.add(sX);
+
+    const sY = makeTextSprite('Rating ↑', { color: '#4caf50', bg: 'rgba(20,20,40,0.85)', width: 1.8, height: 0.4 });
+    sY.position.set(0, 8.6, 0);
+    scene.add(sY);
+
+    const sZ = makeTextSprite('Units →', { color: '#448aff', bg: 'rgba(20,20,40,0.85)', width: 1.8, height: 0.4 });
+    sZ.position.set(0, 0, 14.8);
+    scene.add(sZ);
+  }
+
+  function buildScatter() {
+    let sales = getSalesByCategory(CAT);
+    if (BRAND) {
+      sales = sales.filter(s => s.brand.toLowerCase() === BRAND.toLowerCase());
+    }
+    document.getElementById('count-badge').textContent = `${sales.length} Products`;
+
+    if (sales.length === 0) return;
+
+    // Price lookup from PRODUCTS_DATA
+    const prodMap = {};
+    PRODUCTS_DATA.forEach(p => { prodMap[p.name] = p; });
+
+    const maxPrice = 800000;
+    const maxUnits = 4000;
+    const maxRev = Math.max(...sales.map(s => s.revenue));
+
+    sales.forEach(s => {
+      const pInfo = prodMap[s.name] || {};
+      const price = pInfo.price || 100000;
+
+      // Coordinate scaling
+      const x = Math.min(13, (price / maxPrice) * 13);
+      const y = Math.max(0.6, ((s.rating - 4.2) / 0.8) * 7);
+      const z = Math.min(13, (s.units / maxUnits) * 13);
+
+      const rad = 0.22 + Math.sqrt(s.revenue / maxRev) * 0.45;
+      const bColor = brandColor(s.brand);
+
+      const geo = new THREE.SphereGeometry(rad, 24, 24);
+      const mat = new THREE.MeshStandardMaterial({
+        color: bColor,
+        roughness: 0.2,
+        metalness: 0.6,
+        emissive: new THREE.Color(bColor).multiplyScalar(0.25)
+      });
+
+      const sphere = new THREE.Mesh(geo, mat);
+      sphere.position.set(x, y, z);
+      sphere.userData = {
+        sales: s,
+        product: pInfo,
+        origColor: bColor,
+        baseY: y
+      };
+
+      // Dropdown guide line to floor
+      const guideGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(x, 0, z),
+        new THREE.Vector3(x, y, z)
+      ]);
+      const guideLine = new THREE.Line(guideGeo, new THREE.LineDashedMaterial({ color: 0x555588, dashSize: 0.2, gapSize: 0.1 }));
+      guideLine.computeLineDistances();
+      scene.add(guideLine);
+
+      // Floor marker ring
+      const ringGeo = new THREE.RingGeometry(rad * 0.5, rad * 0.7, 16);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: bColor, transparent: true, opacity: 0.4 }));
+      ring.position.set(x, 0.02, z);
+      scene.add(ring);
+
+      scene.add(sphere);
+      spheres.push(sphere);
+    });
+
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2(-9999, -9999);
+  }
+
+  function bindEvents() {
+    window.addEventListener('resize', () => {
+      const c = document.getElementById('canvas-container');
+      camera.aspect = c.clientWidth / c.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(c.clientWidth, c.clientHeight);
+    });
+
+    const dom = renderer.domElement;
+    dom.addEventListener('mousemove', e => {
+      const rect = dom.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      if (hoveredSphere) {
+        const s = hoveredSphere.userData.sales;
+        const p = hoveredSphere.userData.product;
+        const html = `
+          <div class="tt-name">${s.name}</div>
+          <div class="tt-row"><span class="tt-label">Brand</span><span class="tt-value">${s.brand}</span></div>
+          <div class="tt-row"><span class="tt-label">Price</span><span class="tt-value">PKR ${(p.price||0).toLocaleString()}</span></div>
+          <div class="tt-row"><span class="tt-label">Customer Rating</span><span class="tt-value">★ ${s.rating.toFixed(2)}</span></div>
+          <div class="tt-row"><span class="tt-label">Units Sold</span><span class="tt-value">${s.units.toLocaleString()}</span></div>
+          <div class="tt-price">${fmtPKR(s.revenue)}</div>
+        `;
+        showTooltip(html, e.clientX, e.clientY);
+      }
+    });
+
+    dom.addEventListener('mouseleave', () => {
+      mouse.set(-9999, -9999);
+      hideTooltip();
+    });
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(spheres);
+
+    if (hits.length > 0) {
+      const target = hits[0].object;
+      if (hoveredSphere !== target) {
+        if (hoveredSphere) unhighlight(hoveredSphere);
+        hoveredSphere = target;
+        highlight(hoveredSphere);
+      }
+    } else {
+      if (hoveredSphere) {
+        unhighlight(hoveredSphere);
+        hoveredSphere = null;
+        hideTooltip();
+      }
+    }
+
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  function highlight(mesh) {
+    mesh.material.emissive.setHex(0xffffff);
+    mesh.material.emissiveIntensity = 0.6;
+    mesh.scale.set(1.3, 1.3, 1.3);
+    document.body.style.cursor = 'pointer';
+  }
+
+  function unhighlight(mesh) {
+    mesh.material.emissive.setHex(mesh.userData.origColor);
+    mesh.material.emissiveIntensity = 0.25;
+    mesh.scale.set(1, 1, 1);
+    document.body.style.cursor = 'default';
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
