@@ -3,282 +3,243 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>3D Brand Comparison</title>
+  <title>3D Brand Benchmarks</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="../../css/style.css"/>
+
   <script src="../../js/vendor/three.min.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';"></script>
   <script src="../../js/vendor/OrbitControls.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js';"></script>
   <script src="../../js/sales-data.js"></script>
   <script src="../../js/shared-ui.js"></script>
   <style>
-    .brand-legend {
-      position: fixed;
-      top: 68px;
-      right: 16px;
-      background: var(--tooltip-bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 14px;
-      font-size: 11px;
-      color: var(--text);
-      z-index: 90;
-      backdrop-filter: blur(8px);
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
+    body, html {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: transparent;
     }
-    .leg-chip {
-      display: inline-block;
-      width: 10px; height: 10px;
-      border-radius: 2px;
-      margin-right: 6px;
+    #canvas-container {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     }
-    .chip-rev { background: #6c63ff; }
-    .chip-units { background: #ff6584; }
-    .chip-rate { background: #43e97b; }
   </style>
 </head>
 <body>
-<div id="loading"><div class="spinner"></div><div class="loading-text">Computing Brand Benchmarks…</div></div>
+<div id="loading"><div class="spinner"></div><div class="loading-text">Loading Brand 3D…</div></div>
 <div id="tooltip"></div>
-
-<nav id="topbar">
-  <span class="logo" id="brand-title">🏆 3D Brand Benchmarks</span>
-  <button id="mode-toggle" onclick="toggleMode()" style="margin-left:auto">
-    <span class="icon" id="mode-icon">🌙</span>
-    <span id="mode-label">Dark</span>
-  </button>
-</nav>
-
-<div class="brand-legend">
-  <div><span class="leg-chip chip-rev"></span>Revenue Index</div>
-  <div><span class="leg-chip chip-units"></span>Volume Index</div>
-  <div><span class="leg-chip chip-rate"></span>Satisfaction (Rating)</div>
-</div>
-
 <div id="canvas-container"></div>
-<div id="info-panel">
-  <strong>🖱 Drag</strong> orbit &nbsp;|&nbsp; <strong>Hover</strong> grouped bar to compare brand metrics
-</div>
-<div id="count-badge">0 Brands</div>
 
 <script>
-  const CAT = getURLParam('cat') || '';
+const CAT    = getURLParam('cat') || '';
+const REGION = getURLParam('region') || '';
+const THEME  = (getURLParam('theme') || 'dark').toLowerCase();
+const ROTATE = getURLParam('rotate') !== 'false';
 
-  if (CAT) {
-    document.getElementById('brand-title').textContent = `🏆 ${CAT} - Brand Benchmarks`;
-  }
+if (THEME === 'light') {
+  document.body.classList.add('light-mode');
+}
 
-  let scene, camera, renderer, controls, raycaster, mouse;
-  let allBars = [];
-  let hoveredGroup = null;
+let scene, camera, renderer, controls, raycaster, mouse;
+let allBars = [];
+let hoveredGroup = null;
 
-  function init() {
-    const container = document.getElementById('canvas-container');
-    const w = container.clientWidth;
-    const h = container.clientHeight;
+function init() {
+  const container = document.getElementById('canvas-container');
+  const w = container.clientWidth || window.innerWidth || 600;
+  const h = container.clientHeight || window.innerHeight || 450;
 
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0d0d1a);
-    scene.fog = new THREE.FogExp2(0x0d0d1a, 0.03);
+  scene = new THREE.Scene();
+  const isLight = THEME === 'light';
+  const bgColor = isLight ? 0xf4f5fb : 0x0a0b14;
+  scene.background = new THREE.Color(bgColor);
+  scene.fog = new THREE.FogExp2(bgColor, 0.03);
 
-    camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 100);
-    camera.position.set(0, 8, 16);
+  camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+  camera.position.set(0, 6.5, 13);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(w, h);
-    renderer.shadowMap.enabled = true;
-    container.appendChild(renderer.domElement);
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(w, h);
+  renderer.shadowMap.enabled = true;
+  container.appendChild(renderer.domElement);
 
+  if (typeof THREE.OrbitControls === 'function') {
     controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.07;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.4;
-
-    // Lights
-    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
-    const dir = new THREE.DirectionalLight(0xffffff, 1.3);
-    dir.position.set(10, 20, 10);
-    dir.castShadow = true;
-    scene.add(dir);
-
-    // Floor
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(60, 60),
-      new THREE.MeshStandardMaterial({ color: 0x090918, roughness: 0.9 })
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    scene.add(floor);
-
-    const grid = new THREE.GridHelper(50, 50, 0x2a2a55, 0x151530);
-    grid.position.y = 0.01;
-    scene.add(grid);
-
-    raycaster = new THREE.Raycaster();
-    mouse = new THREE.Vector2(-9999, -9999);
-
-    buildBrandGroups();
-    bindEvents();
-    animate();
-    setTimeout(() => document.getElementById('loading').classList.add('hidden'), 500);
+    controls.dampingFactor = 0.06;
+    controls.autoRotate = ROTATE;
+    controls.autoRotateSpeed = 0.75;
+    controls.maxPolarAngle = Math.PI / 2.05;
   }
 
-  function buildBrandGroups() {
-    const sales = getSalesByCategory(CAT);
-    const brandMap = {};
+  // Lights
+  scene.add(new THREE.AmbientLight(0xffffff, isLight ? 0.85 : 0.5));
+  const dir = new THREE.DirectionalLight(0xffffff, isLight ? 1.2 : 1.4);
+  dir.position.set(10, 18, 10);
+  dir.castShadow = true;
+  scene.add(dir);
 
-    sales.forEach(s => {
-      if (!brandMap[s.brand]) {
-        brandMap[s.brand] = { brand: s.brand, revenue: 0, units: 0, sumRating: 0, count: 0 };
-      }
-      brandMap[s.brand].revenue += s.revenue;
-      brandMap[s.brand].units += s.units;
-      brandMap[s.brand].sumRating += s.rating;
-      brandMap[s.brand].count += 1;
-    });
+  // Floor
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(50, 50),
+    new THREE.MeshStandardMaterial({ color: isLight ? 0xe9ecf6 : 0x05060b, roughness: 0.85, metalness: 0.15 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
 
-    const brandList = Object.values(brandMap).map(b => ({
-      ...b,
-      avgRating: b.sumRating / b.count
-    }));
+  const grid = new THREE.GridHelper(36, 36, isLight ? 0xc4c8da : 0x222344, isLight ? 0xdcdff0 : 0x121326);
+  grid.position.y = 0.01;
+  scene.add(grid);
 
-    document.getElementById('count-badge').textContent = `${brandList.length} Brands`;
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2(-9999, -9999);
 
-    if (brandList.length === 0) return;
+  buildBrandGroups();
+  bindEvents();
+  animate();
 
-    // Max values for normalization
-    const maxRev   = Math.max(...brandList.map(b => b.revenue));
-    const maxUnits = Math.max(...brandList.map(b => b.units));
+  const l = document.getElementById('loading');
+  if (l) l.classList.add('hidden');
+}
 
-    const numBrands = brandList.length;
-    const groupSpacing = 3.6;
-    const startX = -((numBrands - 1) * groupSpacing) / 2;
+function buildBrandGroups() {
+  const brandList = getAggregatedBrands({ category: CAT, region: REGION });
+  if (brandList.length === 0) return;
 
-    brandList.forEach((b, i) => {
-      const gx = startX + i * groupSpacing;
-      const group = new THREE.Group();
-      group.position.set(gx, 0, 0);
+  const maxRev   = Math.max(...brandList.map(b => b.revenue)) || 1;
+  const maxUnits = Math.max(...brandList.map(b => b.units)) || 1;
 
-      // Heights normalized
-      const hRev   = Math.max(0.3, (b.revenue / maxRev) * 5.5);
-      const hUnits = Math.max(0.3, (b.units / maxUnits) * 4.5);
-      const hRate  = Math.max(0.3, ((b.avgRating - 4.0) / 1.0) * 4.8);
+  const numBrands = brandList.length;
+  const groupSpacing = 3.2;
+  const startX = -((numBrands - 1) * groupSpacing) / 2;
 
-      const metrics = [
-        { h: hRev,   color: 0x6c63ff, x: -0.65, label: 'Revenue' },
-        { h: hUnits, color: 0xff6584, x:  0.0,  label: 'Units' },
-        { h: hRate,  color: 0x43e97b, x:  0.65, label: 'Rating' }
-      ];
+  brandList.forEach((b, i) => {
+    const gx = startX + i * groupSpacing;
+    const group = new THREE.Group();
+    group.position.set(gx, 0, 0);
 
-      metrics.forEach(m => {
-        const geo = new THREE.BoxGeometry(0.5, m.h, 0.5);
-        geo.translate(0, m.h / 2, 0);
-        const mat = new THREE.MeshStandardMaterial({
-          color: m.color,
-          roughness: 0.3,
-          metalness: 0.4,
-          emissive: new THREE.Color(m.color).multiplyScalar(0.2)
-        });
-        const bar = new THREE.Mesh(geo, mat);
-        bar.position.set(m.x, 0, 0);
-        bar.castShadow = true;
-        bar.receiveShadow = true;
-        bar.userData = { brandData: b, metric: m.label, origColor: m.color };
-        group.add(bar);
-        allBars.push(bar);
+    const hRev   = Math.max(0.3, (b.revenue / maxRev) * 5.0);
+    const hUnits = Math.max(0.3, (b.units / maxUnits) * 4.0);
+    const hRate  = Math.max(0.3, ((b.avgRating - 4.0) / 1.0) * 4.2);
+
+    const metrics = [
+      { h: hRev,   color: 0x6c63ff, x: -0.55, label: 'Revenue' },
+      { h: hUnits, color: 0xff6584, x:  0.0,  label: 'Units' },
+      { h: hRate,  color: 0x43e97b, x:  0.55, label: 'Rating' }
+    ];
+
+    metrics.forEach(m => {
+      const geo = new THREE.BoxGeometry(0.46, m.h, 0.46);
+      geo.translate(0, m.h / 2, 0);
+      const mat = new THREE.MeshStandardMaterial({
+        color: m.color,
+        roughness: 0.3,
+        metalness: 0.4,
+        emissive: new THREE.Color(m.color).multiplyScalar(0.2)
       });
-
-      // Platform Base
-      const platGeo = new THREE.BoxGeometry(2.2, 0.1, 1.2);
-      const platMat = new THREE.MeshStandardMaterial({ color: 0x1f1f3a, metalness: 0.7, roughness: 0.3 });
-      const plat = new THREE.Mesh(platGeo, platMat);
-      plat.position.y = 0.05;
-      group.add(plat);
-
-      // Brand Label Sprite
-      const sprite = makeTextSprite(b.brand, { size: 90, width: 2.2, height: 0.5, bg: 'rgba(15,15,35,0.85)' });
-      sprite.position.set(0, -0.4, 1.1);
-      group.add(sprite);
-
-      scene.add(group);
-    });
-  }
-
-  function bindEvents() {
-    window.addEventListener('resize', () => {
-      const c = document.getElementById('canvas-container');
-      camera.aspect = c.clientWidth / c.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(c.clientWidth, c.clientHeight);
+      const bar = new THREE.Mesh(geo, mat);
+      bar.position.set(m.x, 0, 0);
+      bar.castShadow = true;
+      bar.receiveShadow = true;
+      bar.userData = { brandData: b, metric: m.label, origColor: m.color };
+      group.add(bar);
+      allBars.push(bar);
     });
 
-    const dom = renderer.domElement;
-    dom.addEventListener('mousemove', e => {
-      const rect = dom.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    // Platform Base
+    const platGeo = new THREE.BoxGeometry(2.0, 0.08, 1.1);
+    const platMat = new THREE.MeshStandardMaterial({ color: THEME === 'light' ? 0xd0d4e6 : 0x1f2038, metalness: 0.6, roughness: 0.3 });
+    const plat = new THREE.Mesh(platGeo, platMat);
+    plat.position.y = 0.04;
+    group.add(plat);
 
-      if (hoveredGroup) {
-        const b = hoveredGroup.userData.brandData;
-        const html = `
-          <div class="tt-name">${b.brand}</div>
-          <div class="tt-row"><span class="tt-label">Total Revenue</span><span class="tt-value">${fmtPKR(b.revenue)}</span></div>
-          <div class="tt-row"><span class="tt-label">Total Units</span><span class="tt-value">${b.units.toLocaleString()}</span></div>
-          <div class="tt-row"><span class="tt-label">Avg Rating</span><span class="tt-value">★ ${b.avgRating.toFixed(2)}</span></div>
-          <div class="tt-row"><span class="tt-label">Active SKUs</span><span class="tt-value">${b.count} Models</span></div>
-          <div class="tt-price">${CAT || 'All Categories'}</div>
-        `;
-        showTooltip(html, e.clientX, e.clientY);
-      }
+    // Brand Label Sprite
+    const sprite = makeTextSprite(b.brand, {
+      size: 80, width: 2.0, height: 0.45,
+      bg: THEME === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(15,16,30,0.85)',
+      color: THEME === 'light' ? '#111' : '#fff'
     });
+    sprite.position.set(0, -0.32, 1.0);
+    group.add(sprite);
 
-    dom.addEventListener('mouseleave', () => {
-      mouse.set(-9999, -9999);
-      hideTooltip();
-    });
-  }
+    scene.add(group);
+  });
+}
 
-  function animate() {
-    requestAnimationFrame(animate);
+function bindEvents() {
+  window.addEventListener('resize', () => {
+    const c = document.getElementById('canvas-container');
+    camera.aspect = c.clientWidth / c.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(c.clientWidth, c.clientHeight);
+  });
 
-    raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(allBars);
+  const dom = renderer.domElement;
+  dom.addEventListener('mousemove', e => {
+    const rect = dom.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-    if (hits.length > 0) {
-      const target = hits[0].object;
-      if (hoveredGroup !== target) {
-        if (hoveredGroup) unhighlight(hoveredGroup);
-        hoveredGroup = target;
-        highlight(hoveredGroup);
-      }
-    } else {
-      if (hoveredGroup) {
-        unhighlight(hoveredGroup);
-        hoveredGroup = null;
-        hideTooltip();
-      }
+    if (hoveredGroup) {
+      const b = hoveredGroup.userData.brandData;
+      const html = `
+        <div class="tt-name">${b.brand}</div>
+        <div class="tt-row"><span class="tt-label">Total Revenue</span><span class="tt-value">${fmtPKR(b.revenue)}</span></div>
+        <div class="tt-row"><span class="tt-label">Units Sold</span><span class="tt-value">${b.units.toLocaleString()}</span></div>
+        <div class="tt-row"><span class="tt-label">Avg Rating</span><span class="tt-value">★ ${b.avgRating.toFixed(2)}</span></div>
+        <div class="tt-row"><span class="tt-label">Catalog SKUs</span><span class="tt-value">${b.count} Models</span></div>
+        ${REGION ? `<div class="tt-price">${REGION}</div>` : ''}
+      `;
+      showTooltip(html, e.clientX, e.clientY);
     }
+  });
 
-    controls.update();
-    renderer.render(scene, camera);
+  dom.addEventListener('mouseleave', () => {
+    mouse.set(-9999, -9999);
+    hideTooltip();
+  });
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(allBars);
+
+  if (hits.length > 0) {
+    const target = hits[0].object;
+    if (hoveredGroup !== target) {
+      if (hoveredGroup) unhighlight(hoveredGroup);
+      hoveredGroup = target;
+      highlight(hoveredGroup);
+    }
+  } else {
+    if (hoveredGroup) {
+      unhighlight(hoveredGroup);
+      hoveredGroup = null;
+      hideTooltip();
+    }
   }
 
-  function highlight(mesh) {
-    mesh.material.emissiveIntensity = 0.8;
-    mesh.scale.set(1.15, 1.05, 1.15);
-    document.body.style.cursor = 'pointer';
-  }
+  if (controls) controls.update();
+  if (renderer) renderer.render(scene, camera);
+}
 
-  function unhighlight(mesh) {
-    mesh.material.emissiveIntensity = 0.2;
-    mesh.scale.set(1, 1, 1);
-    document.body.style.cursor = 'default';
-  }
+function highlight(mesh) {
+  mesh.material.emissiveIntensity = 0.8;
+  mesh.scale.set(1.15, 1.05, 1.15);
+  document.body.style.cursor = 'pointer';
+}
 
-  window.addEventListener('DOMContentLoaded', init);
+function unhighlight(mesh) {
+  mesh.material.emissiveIntensity = 0.2;
+  mesh.scale.set(1, 1, 1);
+  document.body.style.cursor = 'default';
+}
+
+window.addEventListener('DOMContentLoaded', init);
+setTimeout(() => {
+  const l = document.getElementById('loading');
+  if (l) l.classList.add('hidden');
+}, 1000);
 </script>
 </body>
 </html>

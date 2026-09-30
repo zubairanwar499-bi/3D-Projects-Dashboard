@@ -1,556 +1,554 @@
 // =====================================================
-// scene3d.js — Core Three.js 3D Scene Engine
-// Handles: scene setup, geometry builders, interaction,
-//          tooltip, dark/light mode, category switching
+// scene3d.js — Ultra-Realistic 3D Product Hardware Engine
+// Specialized detailed geometries for:
+// Smartphones, TVs, Laptops, Headphones, Tablets, Watches
+// Full-bleed canvas, zero clutter, external slicer driven
 // =====================================================
 
 class Scene3D {
-  constructor(containerId) {
-    this.container = document.getElementById(containerId);
-    this.products  = [];
-    this.meshes    = [];
-    this.labels    = [];
+  constructor(containerId, options = {}) {
+    this.container = document.getElementById(containerId) || document.body;
+    this.options = options;
+    this.products = [];
+    this.meshes = [];
     this.hoveredMesh = null;
-    this.isLight   = false;
     this.animFrame = null;
+
+    // Read URL options
+    this.theme = (getURLParam('theme') || options.theme || 'dark').toLowerCase();
+    this.rotate = getURLParam('rotate') !== 'false' && options.rotate !== false;
+    this.selectedProductName = (getURLParam('product') || options.product || '').toLowerCase().trim();
+    this.selectedBrand = (getURLParam('brand') || options.brand || '').toLowerCase().trim();
+    this.selectedCategory = (getURLParam('cat') || options.category || '').toLowerCase().trim();
 
     this._initScene();
     this._initLights();
     this._initPostSetup();
-    this.initLabelRenderer();
     this._bindEvents();
   }
 
   // ── Scene / Camera / Renderer ──────────────────
   _initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0d0d1a);
-    this.scene.fog = new THREE.FogExp2(0x0d0d1a, 0.035);
+    const isLight = this.theme === 'light';
+    const bgColor = isLight ? 0xf4f5fb : 0x0a0b14;
+    this.scene.background = new THREE.Color(bgColor);
+    this.scene.fog = new THREE.FogExp2(bgColor, 0.03);
 
-    const w = this.container ? (this.container.clientWidth || window.innerWidth || 800) : (window.innerWidth || 800);
-    const h = this.container ? (this.container.clientHeight || window.innerHeight || 500) : (window.innerHeight || 500);
+    const w = this.container.clientWidth || window.innerWidth || 600;
+    const h = this.container.clientHeight || window.innerHeight || 450;
 
-    this.camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 200);
-    this.camera.position.set(0, 6, 16);
+    this.camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 150);
+    this.camera.position.set(0, 3.5, 9);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(w, h);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping       = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
-    if (this.container) {
-      this.container.appendChild(this.renderer.domElement);
-    } else {
-      document.body.appendChild(this.renderer.domElement);
-    }
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = isLight ? 1.1 : 1.35;
 
-    // OrbitControls
+    this.container.innerHTML = '';
+    this.container.appendChild(this.renderer.domElement);
+
     if (typeof THREE.OrbitControls === 'function') {
       this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-      this.controls.enableDamping  = true;
-      this.controls.dampingFactor  = 0.08;
-      this.controls.minDistance    = 4;
-      this.controls.maxDistance    = 40;
-      this.controls.maxPolarAngle  = Math.PI / 1.8;
-      this.controls.autoRotate     = true;
-      this.controls.autoRotateSpeed = 0.6;
+      this.controls.enableDamping = true;
+      this.controls.dampingFactor = 0.06;
+      this.controls.minDistance = 2.5;
+      this.controls.maxDistance = 30;
+      this.controls.maxPolarAngle = Math.PI / 2.02;
+      this.controls.autoRotate = this.rotate;
+      this.controls.autoRotateSpeed = 0.75;
     }
 
-    // Raycaster
     this.raycaster = new THREE.Raycaster();
-    this.mouse     = new THREE.Vector2(-9999, -9999);
+    this.mouse = new THREE.Vector2(-9999, -9999);
   }
 
+  // ── Lighting Setup ─────────────────────────────
   _initLights() {
-    // Ambient
-    this.ambientLight = new THREE.AmbientLight(0x6666ff, 0.4);
+    const isLight = this.theme === 'light';
+
+    this.ambientLight = new THREE.AmbientLight(0xffffff, isLight ? 0.85 : 0.45);
     this.scene.add(this.ambientLight);
 
-    // Key light
-    const key = new THREE.DirectionalLight(0xffffff, 1.6);
-    key.position.set(10, 20, 10);
+    // Key Light
+    const key = new THREE.DirectionalLight(0xffffff, isLight ? 1.3 : 1.6);
+    key.position.set(8, 14, 8);
     key.castShadow = true;
-    key.shadow.mapSize.width  = 2048;
-    key.shadow.mapSize.height = 2048;
-    key.shadow.camera.far     = 80;
+    key.shadow.mapSize.width = 1024;
+    key.shadow.mapSize.height = 1024;
+    key.shadow.bias = -0.0005;
     this.scene.add(key);
 
-    // Fill
-    const fill = new THREE.DirectionalLight(0x8888ff, 0.5);
-    fill.position.set(-10, 5, -5);
-    this.scene.add(fill);
-
-    // Rim (accent purple)
-    const rim = new THREE.PointLight(0x6c63ff, 2, 30);
-    rim.position.set(0, 10, -10);
+    // Rim Back Light
+    const rim = new THREE.DirectionalLight(isLight ? 0x99aaff : 0x6c63ff, isLight ? 0.6 : 1.4);
+    rim.position.set(-8, 6, -6);
     this.scene.add(rim);
 
-    // Floor rim
-    const floor = new THREE.PointLight(0xff6584, 1.5, 25);
-    floor.position.set(5, -3, 5);
-    this.scene.add(floor);
+    // Accent Point
+    const accent = new THREE.PointLight(isLight ? 0xffaa66 : 0x00d2ff, 1.2, 20);
+    accent.position.set(0, 5, 4);
+    this.scene.add(accent);
   }
 
+  // ── Floor and Ambient Environment ──────────────
   _initPostSetup() {
-    // Ground plane
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(80, 80),
-      new THREE.MeshStandardMaterial({
-        color: 0x0a0a20, metalness: 0.1, roughness: 0.9
-      })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -1.2;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
+    const isLight = this.theme === 'light';
 
-    // Grid
-    const grid = new THREE.GridHelper(60, 60, 0x2a2a55, 0x1a1a35);
-    grid.position.y = -1.18;
+    // Ground reflector
+    const floorGeo = new THREE.PlaneGeometry(60, 60);
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: isLight ? 0xe9ecf6 : 0x05060b,
+      roughness: 0.75,
+      metalness: 0.15
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -1.2;
+    floor.receiveShadow = true;
+    this.scene.add(floor);
+
+    // Subtle grid
+    const grid = new THREE.GridHelper(40, 40, isLight ? 0xc4c8da : 0x222344, isLight ? 0xdcdff0 : 0x121326);
+    grid.position.y = -1.19;
     this.scene.add(grid);
     this.grid = grid;
-
-    // Particle field
-    this._createParticles();
   }
 
-  _createParticles() {
-    const count = 320;
-    const pos   = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      pos[i*3]   = (Math.random() - 0.5) * 60;
-      pos[i*3+1] = Math.random() * 20 - 2;
-      pos[i*3+2] = (Math.random() - 0.5) * 60;
+  // ── Realistic Procedural Model Builders ────────
+  buildDetailedModel(product) {
+    const cat = (product.category || '').toLowerCase();
+    const group = new THREE.Group();
+
+    const brandCol = brandColor(product.brand);
+    const bColor = new THREE.Color(brandCol);
+    const isApple = (product.brand || '').toLowerCase() === 'apple';
+
+    if (cat.includes('smart') && !cat.includes('watch')) {
+      // ══════════════════════════════════════════════
+      // 📱 REALISTIC SMARTPHONE (iPhone / Galaxy)
+      // ══════════════════════════════════════════════
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: isApple ? 0x3a3b40 : 0x1c1e28,
+        metalness: 0.85,
+        roughness: 0.22
+      });
+
+      // Chassis
+      const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.05, 2.15, 0.11), bodyMat);
+      chassis.castShadow = true;
+      group.add(chassis);
+
+      // Edge Band
+      const frameMat = new THREE.MeshStandardMaterial({ color: bColor, metalness: 0.95, roughness: 0.1 });
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(1.07, 2.17, 0.08), frameMat);
+      group.add(frame);
+
+      // Glass Screen Front
+      const screenMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0c18,
+        emissive: isApple ? 0x152244 : 0x1a1236,
+        emissiveIntensity: 0.55,
+        roughness: 0.05,
+        metalness: 0.9
+      });
+      const screen = new THREE.Mesh(new THREE.BoxGeometry(0.96, 2.02, 0.01), screenMat);
+      screen.position.z = 0.06;
+      group.add(screen);
+
+      // Dynamic Island / Camera Punch Hole
+      const punchGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.02, 16);
+      punchGeo.rotateX(Math.PI / 2);
+      const punchMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      const punch = new THREE.Mesh(punchGeo, punchMat);
+      punch.position.set(0, 0.92, 0.068);
+      group.add(punch);
+
+      // Rear Camera Module
+      const bumpMat = new THREE.MeshStandardMaterial({ color: 0x111218, metalness: 0.7, roughness: 0.25 });
+      const bump = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.46, 0.04), bumpMat);
+      bump.position.set(0.24, 0.76, -0.07);
+      group.add(bump);
+
+      // 3 Camera Lenses
+      const lensMat = new THREE.MeshStandardMaterial({ color: 0x050510, emissive: 0x0055aa, emissiveIntensity: 0.4, metalness: 0.95, roughness: 0.05 });
+      const lensRingMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.95, roughness: 0.1 });
+      const lensPositions = [
+        [0.17, 0.85, -0.095],
+        [0.31, 0.85, -0.095],
+        [0.24, 0.67, -0.095]
+      ];
+      lensPositions.forEach(pos => {
+        const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.065, 0.03, 20), lensRingMat);
+        ring.rotateX(Math.PI / 2);
+        ring.position.set(...pos);
+        group.add(ring);
+
+        const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.035, 20), lensMat);
+        lens.rotateX(Math.PI / 2);
+        lens.position.set(...pos);
+        group.add(lens);
+      });
+
+    } else if (cat.includes('tv')) {
+      // ══════════════════════════════════════════════
+      // 📺 REALISTIC 4K / 8K TELEVISION
+      // ══════════════════════════════════════════════
+      const w = 3.6;
+      const h = 2.05;
+
+      // Ultra-slim panel frame
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0x181a20, metalness: 0.85, roughness: 0.25 });
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.07), frameMat);
+      frame.castShadow = true;
+      group.add(frame);
+
+      // Display Screen
+      const screenMat = new THREE.MeshStandardMaterial({
+        color: 0x03040c,
+        emissive: bColor,
+        emissiveIntensity: 0.28,
+        roughness: 0.08,
+        metalness: 0.95
+      });
+      const screen = new THREE.Mesh(new THREE.BoxGeometry(w - 0.08, h - 0.08, 0.01), screenMat);
+      screen.position.z = 0.04;
+      group.add(screen);
+
+      // Stand / Feet
+      const standMat = new THREE.MeshStandardMaterial({ color: 0x888894, metalness: 0.95, roughness: 0.15 });
+      [-w * 0.35, w * 0.35].forEach(x => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.65), standMat);
+        leg.position.set(x, -h / 2 - 0.12, 0);
+        leg.castShadow = true;
+        group.add(leg);
+      });
+
+      // Back Electronics Housing
+      const backHousing = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, h * 0.55, 0.1), frameMat);
+      backHousing.position.set(0, -0.15, -0.08);
+      group.add(backHousing);
+
+    } else if (cat.includes('laptop')) {
+      // ══════════════════════════════════════════════
+      // 💻 REALISTIC LAPTOP (Open Lid)
+      // ══════════════════════════════════════════════
+      const caseMat = new THREE.MeshStandardMaterial({ color: 0x6e717c, metalness: 0.8, roughness: 0.2 });
+
+      // Base Body
+      const base = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.08, 1.55), caseMat);
+      base.castShadow = true;
+      group.add(base);
+
+      // Keyboard Area
+      const kbMat = new THREE.MeshStandardMaterial({ color: 0x1a1a22, metalness: 0.3, roughness: 0.7 });
+      const kb = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.01, 0.85), kbMat);
+      kb.position.set(0, 0.045, -0.2);
+      group.add(kb);
+
+      // Trackpad
+      const tpMat = new THREE.MeshStandardMaterial({ color: 0x5a5d66, metalness: 0.5, roughness: 0.3 });
+      const tp = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.01, 0.45), tpMat);
+      tp.position.set(0, 0.045, 0.45);
+      group.add(tp);
+
+      // Screen Lid (Angled 115 deg)
+      const lidGroup = new THREE.Group();
+      lidGroup.position.set(0, 0.04, -0.75);
+      lidGroup.rotation.x = -Math.PI * 0.16;
+
+      const lid = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.45, 0.05), caseMat);
+      lid.position.y = 0.72;
+      lidGroup.add(lid);
+
+      const scrMat = new THREE.MeshStandardMaterial({
+        color: 0x050814,
+        emissive: bColor,
+        emissiveIntensity: 0.35,
+        metalness: 0.9,
+        roughness: 0.05
+      });
+      const scr = new THREE.Mesh(new THREE.BoxGeometry(2.18, 1.35, 0.01), scrMat);
+      scr.position.set(0, 0.72, 0.03);
+      lidGroup.add(scr);
+
+      group.add(lidGroup);
+
+    } else if (cat.includes('headphone')) {
+      // ══════════════════════════════════════════════
+      // 🎧 REALISTIC HEADPHONES
+      // ══════════════════════════════════════════════
+      const matMain = new THREE.MeshStandardMaterial({ color: 0x22242c, metalness: 0.75, roughness: 0.25 });
+      const matCushion = new THREE.MeshStandardMaterial({ color: 0x111116, roughness: 0.9, metalness: 0.1 });
+
+      // Headband Arc
+      const curve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(-0.95, 0, 0),
+        new THREE.Vector3(0, 1.35, 0),
+        new THREE.Vector3(0.95, 0, 0)
+      );
+      const bandGeo = new THREE.TubeGeometry(curve, 32, 0.07, 12, false);
+      group.add(new THREE.Mesh(bandGeo, matMain));
+
+      // Ear Cups & Cushions
+      [-1, 1].forEach(side => {
+        const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.22, 28), matMain);
+        cup.position.set(side * 0.95, -0.05, 0);
+        cup.rotation.z = Math.PI / 2;
+        group.add(cup);
+
+        const cushion = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.1, 14, 24), matCushion);
+        cushion.position.set(side * (0.95 - side * 0.12), -0.05, 0);
+        cushion.rotation.y = Math.PI / 2;
+        group.add(cushion);
+      });
+
+    } else if (cat.includes('watch')) {
+      // ══════════════════════════════════════════════
+      // ⌚ REALISTIC SMARTWATCH
+      // ══════════════════════════════════════════════
+      const caseMat = new THREE.MeshStandardMaterial({ color: 0x282930, metalness: 0.85, roughness: 0.2 });
+      const dialMat = new THREE.MeshStandardMaterial({
+        color: 0x020308,
+        emissive: bColor,
+        emissiveIntensity: 0.5,
+        roughness: 0.05,
+        metalness: 0.95
+      });
+      const strapMat = new THREE.MeshStandardMaterial({ color: 0x1e2029, roughness: 0.85, metalness: 0.05 });
+
+      // Case
+      const watchCase = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.2, 36), caseMat);
+      group.add(watchCase);
+
+      // Screen Face
+      const face = new THREE.Mesh(new THREE.CylinderGeometry(0.57, 0.57, 0.01, 36), dialMat);
+      face.position.y = 0.105;
+      group.add(face);
+
+      // Digital Crown
+      const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.12, 16), caseMat);
+      crown.rotateZ(Math.PI / 2);
+      crown.position.set(0.68, 0, 0);
+      group.add(crown);
+
+      // Straps
+      [-1, 1].forEach(side => {
+        const strap = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.12, side * 1.1), strapMat);
+        strap.position.set(0, -0.02, side * 0.85);
+        group.add(strap);
+      });
+
+    } else if (cat.includes('tablet')) {
+      // ══════════════════════════════════════════════
+      // 📱 REALISTIC TABLET SLATE
+      // ══════════════════════════════════════════════
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x5a5d66, metalness: 0.85, roughness: 0.2 });
+      const slate = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.5, 0.09), bodyMat);
+      slate.castShadow = true;
+      group.add(slate);
+
+      const scrMat = new THREE.MeshStandardMaterial({
+        color: 0x030612,
+        emissive: bColor,
+        emissiveIntensity: 0.35,
+        metalness: 0.92,
+        roughness: 0.05
+      });
+      const scr = new THREE.Mesh(new THREE.BoxGeometry(1.68, 2.38, 0.01), scrMat);
+      scr.position.z = 0.05;
+      group.add(scr);
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.particles = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0x6c63ff, size: 0.12, transparent: true, opacity: 0.5
-    }));
-    this.scene.add(this.particles);
+
+    return group;
   }
 
-  // ── Product Geometry Builders ───────────────────
-  _buildProductMesh(product, index, total) {
-    const cat = product.category;
-    let geo, mat;
-
-    // Hue-vary base color from product colors array
-    const baseHex = product.colors[0] || "#6c63ff";
-    const baseColor = new THREE.Color(baseHex);
-    const emitColor = baseColor.clone().multiplyScalar(0.3);
-
-    mat = new THREE.MeshStandardMaterial({
-      color: baseColor,
-      emissive: emitColor,
-      metalness: 0.55,
-      roughness: 0.35,
-      envMapIntensity: 1.2,
-    });
-
-    switch (cat) {
-      case "Smartphone": {
-        // Thin rounded slab
-        geo = new THREE.BoxGeometry(0.7, 1.4, 0.08);
-        const m = new THREE.Mesh(geo, mat);
-        // Screen face
-        const screen = new THREE.Mesh(
-          new THREE.BoxGeometry(0.58, 1.22, 0.005),
-          new THREE.MeshStandardMaterial({ color: 0x111133, emissive: 0x2233aa, emissiveIntensity: 0.4, metalness: 0.9, roughness: 0.1 })
-        );
-        screen.position.z = 0.043;
-        m.add(screen);
-        return m;
-      }
-      case "Laptop": {
-        const group = new THREE.Group();
-        // Base
-        const base = new THREE.Mesh(
-          new THREE.BoxGeometry(1.6, 0.06, 1.1),
-          mat.clone()
-        );
-        group.add(base);
-        // Screen panel
-        const screenPanel = new THREE.Mesh(
-          new THREE.BoxGeometry(1.6, 1.0, 0.06),
-          mat.clone()
-        );
-        screenPanel.position.set(0, 0.53, -0.52);
-        screenPanel.rotation.x = -Math.PI * 0.12;
-        // Screen
-        const screenFace = new THREE.Mesh(
-          new THREE.BoxGeometry(1.44, 0.88, 0.005),
-          new THREE.MeshStandardMaterial({ color: 0x111133, emissive: 0x1122bb, emissiveIntensity: 0.35, metalness: 0.9, roughness: 0.05 })
-        );
-        screenFace.position.z = 0.032;
-        screenPanel.add(screenFace);
-        group.add(screenPanel);
-        return group;
-      }
-      case "TV": {
-        const group = new THREE.Group();
-        // Panel — scale by display size hint
-        const sizeStr = product.display || "55in";
-        const sz = parseInt(sizeStr) || 55;
-        const scale = 0.025 * sz;
-        const panel = new THREE.Mesh(
-          new THREE.BoxGeometry(scale * 1.78, scale, 0.08),
-          mat.clone()
-        );
-        group.add(panel);
-        // Screen
-        const scr = new THREE.Mesh(
-          new THREE.BoxGeometry(scale * 1.78 - 0.06, scale - 0.04, 0.01),
-          new THREE.MeshStandardMaterial({ color: 0x050510, emissive: 0x112244, emissiveIntensity: 0.5, metalness: 0.95, roughness: 0.05 })
-        );
-        scr.position.z = 0.045;
-        panel.add(scr);
-        // Stand
-        const stand = new THREE.Mesh(
-          new THREE.BoxGeometry(0.1, 0.4, 0.06),
-          mat.clone()
-        );
-        stand.position.y = -(scale / 2 + 0.2);
-        group.add(stand);
-        const base2 = new THREE.Mesh(
-          new THREE.BoxGeometry(0.5, 0.04, 0.2),
-          mat.clone()
-        );
-        base2.position.y = -(scale / 2 + 0.4);
-        group.add(base2);
-        return group;
-      }
-      case "Headphones": {
-        const group = new THREE.Group();
-        // Headband arc
-        const curve = new THREE.QuadraticBezierCurve3(
-          new THREE.Vector3(-0.55, 0, 0),
-          new THREE.Vector3(0, 0.7, 0),
-          new THREE.Vector3(0.55, 0, 0)
-        );
-        const pts   = curve.getPoints(24);
-        const bandGeo = new THREE.TubeGeometry(
-          new THREE.CatmullRomCurve3(pts), 24, 0.04, 8, false
-        );
-        group.add(new THREE.Mesh(bandGeo, mat.clone()));
-        // Ear cups
-        [-1, 1].forEach(side => {
-          const cup = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.22, 0.22, 0.14, 18),
-            mat.clone()
-          );
-          cup.position.set(side * 0.55, 0, 0);
-          cup.rotation.z = Math.PI / 2;
-          const cushion = new THREE.Mesh(
-            new THREE.TorusGeometry(0.18, 0.055, 10, 20),
-            new THREE.MeshStandardMaterial({ color: 0x222233, metalness: 0.1, roughness: 0.9 })
-          );
-          cushion.position.x = side * 0.08;
-          cushion.rotation.y = Math.PI / 2;
-          cup.add(cushion);
-          group.add(cup);
-        });
-        return group;
-      }
-      case "Tablet": {
-        const group = new THREE.Group();
-        const body = new THREE.Mesh(
-          new THREE.BoxGeometry(1.1, 1.5, 0.07),
-          mat.clone()
-        );
-        group.add(body);
-        const scr = new THREE.Mesh(
-          new THREE.BoxGeometry(0.98, 1.36, 0.005),
-          new THREE.MeshStandardMaterial({ color: 0x0a0a20, emissive: 0x1133bb, emissiveIntensity: 0.4, metalness: 0.95, roughness: 0.05 })
-        );
-        scr.position.z = 0.038;
-        group.add(scr);
-        return group;
-      }
-      case "Smartwatch": {
-        const group = new THREE.Group();
-        const body = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.36, 0.36, 0.12, 32),
-          mat.clone()
-        );
-        group.add(body);
-        // Screen face
-        const face = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.30, 0.30, 0.005, 32),
-          new THREE.MeshStandardMaterial({ color: 0x050510, emissive: 0x2255ff, emissiveIntensity: 0.6, metalness: 0.95, roughness: 0.05 })
-        );
-        face.position.y = 0.063;
-        group.add(face);
-        // Band
-        const bandMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(product.colors[0]||"#222"), metalness: 0.1, roughness: 0.9 });
-        [-1, 1].forEach(dir => {
-          const band = new THREE.Mesh(
-            new THREE.BoxGeometry(0.55, 0.12, dir * 0.5),
-            bandMat
-          );
-          band.position.z = dir * 0.43;
-          group.add(band);
-        });
-        return group;
-      }
-      default:
-        geo = new THREE.SphereGeometry(0.5, 16, 16);
-        return new THREE.Mesh(geo, mat);
-    }
-  }
-
-  // ── Load Products ───────────────────────────────
-  loadProducts(productsArray) {
+  // ── Load & Position Products ───────────────────
+  loadProducts(productsList) {
     this._clearScene();
-    this.products = productsArray;
-    const n = productsArray.length;
-    if (n === 0) return;
+    this.products = productsList || [];
 
-    // Spiral / grid layout
-    const cols  = Math.ceil(Math.sqrt(n * 1.5));
-    const spacX = 3.2;
-    const spacZ = 3.2;
+    const n = this.products.length;
+    if (n === 0) {
+      this._showEmptyState();
+      return;
+    }
 
-    productsArray.forEach((product, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x   = (col - (cols - 1) / 2) * spacX;
-      const z   = (row - Math.floor(n / cols) / 2) * spacZ;
-
-      const mesh = this._buildProductMesh(product, i, n);
-      mesh.position.set(x, 0, z);
-      mesh.castShadow    = true;
-      mesh.receiveShadow = true;
-      mesh.userData      = { product, baseY: 0, hovered: false, floatOffset: Math.random() * Math.PI * 2 };
+    // Single Product Selected in Slicer -> HERO MODE!
+    if (n === 1 || this.selectedProductName) {
+      const p = n === 1 ? this.products[0] : (this.products.find(x => x.name.toLowerCase().includes(this.selectedProductName)) || this.products[0]);
+      const mesh = this.buildDetailedModel(p);
+      mesh.scale.set(1.4, 1.4, 1.4);
+      mesh.position.set(0, 0.2, 0);
+      mesh.userData = { product: p, isHero: true, baseY: 0.2 };
       this.scene.add(mesh);
       this.meshes.push(mesh);
+      this.camera.position.set(0, 2.0, 5.8);
+      if (this.controls) this.controls.target.set(0, 0.2, 0);
+      this._updateHUD(p);
+      this._startAnimation();
+      return;
+    }
 
-      // CSS2D Label
-      this._addLabel(product.name, mesh, x, z);
+    // Multiple Products -> Clean Gallery Layout
+    // Spaced elegantly so they never overlap!
+    const cols = Math.min(n, 5);
+    const rows = Math.ceil(n / cols);
+    const spacingX = 3.6;
+    const spacingZ = 3.4;
+
+    this.products.forEach((p, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = (col - (cols - 1) / 2) * spacingX;
+      const z = (row - (rows - 1) / 2) * spacingZ;
+
+      const mesh = this.buildDetailedModel(p);
+      mesh.position.set(x, 0, z);
+      mesh.userData = { product: p, baseY: 0, floatOffset: (i * 0.4) % (Math.PI * 2) };
+      this.scene.add(mesh);
+      this.meshes.push(mesh);
     });
 
-    // Update badge
-    const badge = document.getElementById('count-badge');
-    if (badge) badge.textContent = `${n} Products`;
+    const dist = Math.max(7, Math.sqrt(n) * 3.5);
+    this.camera.position.set(0, dist * 0.65, dist);
+    if (this.controls) this.controls.target.set(0, 0, 0);
 
     this._startAnimation();
   }
 
-  _addLabel(text, mesh, x, z) {
-    if (typeof THREE.CSS2DObject === 'function') {
-      try {
-        const div = document.createElement('div');
-        div.className = 'label3d';
-        div.textContent = text;
-        const lbl = new THREE.CSS2DObject(div);
-        lbl.position.set(0, 1.4, 0);
-        mesh.add(lbl);
-        this.labels.push(lbl);
-      } catch(e){}
-    }
-  }
-
   _clearScene() {
-    cancelAnimationFrame(this.animFrame);
+    if (this.animFrame) cancelAnimationFrame(this.animFrame);
     this.meshes.forEach(m => {
       this.scene.remove(m);
-      if (m.geometry) m.geometry.dispose();
     });
-    this.meshes  = [];
-    this.labels  = [];
+    this.meshes = [];
     this.hoveredMesh = null;
   }
 
-  // ── Animation Loop ──────────────────────────────
+  _showEmptyState() {
+    this.container.innerHTML = '<div style="display:flex;height:100%;align-items:center;justify-content:center;color:#888;font-size:13px">No 3D Models Matching Slicers</div>';
+  }
+
+  _updateHUD(product) {
+    let hud = document.getElementById('product-hud');
+    if (!hud) {
+      hud = document.createElement('div');
+      hud.id = 'product-hud';
+      hud.style.cssText = `
+        position: fixed;
+        bottom: 12px;
+        left: 14px;
+        background: rgba(12, 14, 24, 0.88);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 8px 12px;
+        color: #e6e8f4;
+        font-size: 11px;
+        backdrop-filter: blur(8px);
+        max-width: 260px;
+        pointer-events: none;
+        z-index: 50;
+      `;
+      document.body.appendChild(hud);
+    }
+    const isLight = this.theme === 'light';
+    hud.style.background = isLight ? 'rgba(255, 255, 255, 0.92)' : 'rgba(12, 14, 24, 0.88)';
+    hud.style.color = isLight ? '#1a1b26' : '#e6e8f4';
+    hud.style.border = isLight ? '1px solid #d4d7e6' : '1px solid rgba(255, 255, 255, 0.12)';
+
+    hud.innerHTML = `
+      <div style="font-weight:700;font-size:13px;color:#6c63ff;margin-bottom:3px">${product.name}</div>
+      <div style="color:${isLight ? '#555' : '#8c90a8'};margin-bottom:4px">${product.brand} · ${product.category}</div>
+      <div style="font-weight:700;color:#2db866">${fmtPKR(product.price || product.basePrice || 0)}</div>
+    `;
+  }
+
+  // ── Animation Loop ─────────────────────────────
   _startAnimation() {
     const clock = new THREE.Clock();
     const animate = () => {
       this.animFrame = requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
 
-      // Float animation per mesh
+      // Gentle floating animation
       this.meshes.forEach(m => {
-        const off = m.userData.floatOffset;
-        const target = m.userData.hovered ? 0.5 : 0;
-        m.position.y  = m.userData.baseY + Math.sin(t * 0.8 + off) * 0.12 + target;
         if (!m.userData.hovered) {
-          m.rotation.y += 0.003;
+          const off = m.userData.floatOffset || 0;
+          m.position.y = (m.userData.baseY || 0) + Math.sin(t * 1.2 + off) * 0.08;
         }
       });
 
-      // Particle drift
-      if (this.particles) {
-        this.particles.rotation.y = t * 0.015;
-      }
-
       // Raycasting for hover
       this.raycaster.setFromCamera(this.mouse, this.camera);
-      const intersects = this.raycaster.intersectObjects(
-        this.meshes.flatMap(m => (m.isGroup ? m.children : [m])),
-        true
-      );
+      const allChildren = this.meshes.flatMap(m => m.children || [m]);
+      const hits = this.raycaster.intersectObjects(allChildren, true);
 
-      let hit = intersects.length > 0 ? intersects[0] : null;
-      let hitParent = hit ? this._findProductMesh(hit.object) : null;
+      let targetRoot = null;
+      if (hits.length > 0) {
+        let cur = hits[0].object;
+        while (cur && !this.meshes.includes(cur)) cur = cur.parent;
+        targetRoot = cur;
+      }
 
-      if (hitParent !== this.hoveredMesh) {
+      if (targetRoot !== this.hoveredMesh) {
         if (this.hoveredMesh) {
           this.hoveredMesh.userData.hovered = false;
-          this._unhighlight(this.hoveredMesh);
+          this.hoveredMesh.scale.set(1, 1, 1);
+          hideTooltip();
         }
-        this.hoveredMesh = hitParent;
+        this.hoveredMesh = targetRoot;
         if (this.hoveredMesh) {
           this.hoveredMesh.userData.hovered = true;
-          this._highlight(this.hoveredMesh);
-          this._showTooltip(this.hoveredMesh.userData.product);
-        } else {
-          this._hideTooltip();
+          this.hoveredMesh.scale.set(1.08, 1.08, 1.08);
+          const p = this.hoveredMesh.userData.product;
+          if (p) {
+            const html = `
+              <div class="tt-name">${p.name}</div>
+              <div class="tt-row"><span class="tt-label">Brand</span><span class="tt-value">${p.brand}</span></div>
+              <div class="tt-row"><span class="tt-label">Category</span><span class="tt-value">${p.category}</span></div>
+              ${p.processor ? `<div class="tt-row"><span class="tt-label">Chip</span><span class="tt-value">${p.processor}</span></div>` : ''}
+              ${p.display ? `<div class="tt-row"><span class="tt-label">Screen</span><span class="tt-value">${p.display}</span></div>` : ''}
+              <div class="tt-price">${fmtPKR(p.price || p.basePrice || 0)}</div>
+            `;
+            showTooltip(html, this._lastMouseX, this._lastMouseY);
+          }
         }
       }
 
       if (this.controls) this.controls.update();
-      if (this.labelRenderer) this.labelRenderer.render(this.scene, this.camera);
       if (this.renderer) this.renderer.render(this.scene, this.camera);
     };
     animate();
   }
 
-  _findProductMesh(obj) {
-    // Walk up to find the mesh in this.meshes
-    let cur = obj;
-    while (cur) {
-      if (this.meshes.includes(cur)) return cur;
-      cur = cur.parent;
-    }
-    return null;
-  }
-
-  _highlight(mesh) {
-    const traverse = (obj) => {
-      if (obj.material) {
-        if (!obj.material._origEmissive) {
-          obj.material._origEmissive = obj.material.emissive.clone();
-        }
-        obj.material.emissive.setHex(0x6c63ff);
-        obj.material.emissiveIntensity = 0.6;
-      }
-      obj.children.forEach(traverse);
-    };
-    traverse(mesh);
-    document.body.style.cursor = 'pointer';
-  }
-
-  _unhighlight(mesh) {
-    const traverse = (obj) => {
-      if (obj.material && obj.material._origEmissive) {
-        obj.material.emissive.copy(obj.material._origEmissive);
-        obj.material.emissiveIntensity = 0.3;
-        delete obj.material._origEmissive;
-      }
-      obj.children.forEach(traverse);
-    };
-    traverse(mesh);
-    document.body.style.cursor = 'default';
-  }
-
-  // ── Tooltip ─────────────────────────────────────
-  _showTooltip(product) {
-    const tt = document.getElementById('tooltip');
-    if (!tt) return;
-
-    const rows = [];
-    if (product.brand)     rows.push(['Brand', product.brand]);
-    if (product.processor) rows.push(['Processor', product.processor]);
-    if (product.ram)       rows.push(['RAM', product.ram]);
-    if (product.storage)   rows.push(['Storage', product.storage]);
-    if (product.display)   rows.push(['Display', product.display]);
-    if (product.battery)   rows.push(['Battery', product.battery]);
-    if (product.os)        rows.push(['OS', product.os]);
-    if (product.warranty)  rows.push(['Warranty', product.warranty + ' mo.']);
-
-    tt.innerHTML = `
-      <div class="tt-name">${product.name}</div>
-      ${rows.map(([k,v]) => `<div class="tt-row"><span class="tt-label">${k}</span><span class="tt-value">${v}</span></div>`).join('')}
-      <div class="tt-price">${fmtPrice(product.price)}</div>
-    `;
-    tt.classList.add('visible');
-  }
-
-  _hideTooltip() {
-    const tt = document.getElementById('tooltip');
-    if (tt) tt.classList.remove('visible');
-  }
-
-  // ── Dark / Light Mode ───────────────────────────
-  setLightMode(isLight) {
-    this.isLight = isLight;
-    const bg = isLight ? 0xf0f2ff : 0x0d0d1a;
-    const fog = isLight ? 0xf0f2ff : 0x0d0d1a;
-    this.scene.background = new THREE.Color(bg);
-    this.scene.fog        = new THREE.FogExp2(fog, isLight ? 0.025 : 0.035);
-    this.ambientLight.color.setHex(isLight ? 0xffffff : 0x6666ff);
-    this.ambientLight.intensity = isLight ? 0.9 : 0.4;
-    this.grid.material.opacity = isLight ? 0.15 : 1;
-    this.particles.material.color.setHex(isLight ? 0x5a52e8 : 0x6c63ff);
-    this.particles.material.opacity = isLight ? 0.3 : 0.5;
-  }
-
-  // ── Resize ──────────────────────────────────────
+  // ── Resize ─────────────────────────────────────
   onResize() {
     if (!this.container || !this.renderer || !this.camera) return;
-    const w = this.container.clientWidth || window.innerWidth || 800;
-    const h = this.container.clientHeight || window.innerHeight || 500;
+    const w = this.container.clientWidth || window.innerWidth || 600;
+    const h = this.container.clientHeight || window.innerHeight || 450;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
-    if (this.labelRenderer) this.labelRenderer.setSize(w, h);
   }
 
-  // ── CSS2DRenderer Setup (called after DOM ready) ─
-  initLabelRenderer() {
-    if (this.labelRenderer) return;
-    if (typeof THREE.CSS2DRenderer === 'function' && this.container) {
-      try {
-        const w = this.container.clientWidth || window.innerWidth || 800;
-        const h = this.container.clientHeight || window.innerHeight || 500;
-        this.labelRenderer = new THREE.CSS2DRenderer();
-        this.labelRenderer.setSize(w, h);
-        this.labelRenderer.domElement.style.position = 'absolute';
-        this.labelRenderer.domElement.style.top      = '0';
-        this.labelRenderer.domElement.style.pointerEvents = 'none';
-        this.container.appendChild(this.labelRenderer.domElement);
-      } catch(e) {
-        console.warn('CSS2DRenderer init fallback:', e);
-      }
-    }
-  }
-
-  // ── Events ──────────────────────────────────────
+  // ── Events ─────────────────────────────────────
   _bindEvents() {
     window.addEventListener('resize', () => this.onResize());
-    this.renderer.domElement.addEventListener('mousemove', e => {
-      const rect = this.renderer.domElement.getBoundingClientRect();
-      this.mouse.x = ((e.clientX - rect.left) / rect.width)  *  2 - 1;
-      this.mouse.y = ((e.clientY - rect.top)  / rect.height) * -2 + 1;
-      // Move tooltip
-      const tt = document.getElementById('tooltip');
-      if (tt && tt.classList.contains('visible')) {
-        tt.style.left = (e.clientX + 18) + 'px';
-        tt.style.top  = (e.clientY - 20) + 'px';
-      }
+    const dom = this.renderer.domElement;
+    dom.addEventListener('mousemove', e => {
+      const rect = dom.getBoundingClientRect();
+      this.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      this.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      this._lastMouseX = e.clientX;
+      this._lastMouseY = e.clientY;
     });
-    this.renderer.domElement.addEventListener('mouseleave', () => {
+    dom.addEventListener('mouseleave', () => {
       this.mouse.set(-9999, -9999);
-      this._hideTooltip();
-    });
-    // Stop auto-rotate on drag
-    this.renderer.domElement.addEventListener('pointerdown', () => {
-      this.controls.autoRotate = false;
-    });
-    this.renderer.domElement.addEventListener('pointerup', () => {
-      setTimeout(() => { this.controls.autoRotate = true; }, 3000);
+      hideTooltip();
     });
   }
 }
