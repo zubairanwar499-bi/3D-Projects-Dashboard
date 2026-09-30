@@ -1,7 +1,7 @@
 // =====================================================
 // scene3d.js — Ultra-Realistic 3D Product Hardware Engine
-// Specialized detailed geometries for:
-// Smartphones, TVs, Laptops, Headphones, Tablets, Watches
+// Specialized detailed geometries with high-res textures
+// Screen wallpapers, keyboards, brand badges, and dials
 // Full-bleed canvas, zero clutter, external slicer driven
 // =====================================================
 
@@ -13,6 +13,8 @@ class Scene3D {
     this.meshes = [];
     this.hoveredMesh = null;
     this.animFrame = null;
+    this.textureCache = {};
+    this.textureLoader = (typeof THREE !== 'undefined' && THREE.TextureLoader) ? new THREE.TextureLoader() : null;
 
     // Read URL options
     this.theme = (getURLParam('theme') || options.theme || 'dark').toLowerCase();
@@ -71,7 +73,7 @@ class Scene3D {
   _initLights() {
     const isLight = this.theme === 'light';
 
-    this.ambientLight = new THREE.AmbientLight(0xffffff, isLight ? 0.85 : 0.45);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, isLight ? 0.9 : 0.55);
     this.scene.add(this.ambientLight);
 
     // Key Light
@@ -118,6 +120,45 @@ class Scene3D {
     this.grid = grid;
   }
 
+  // ── Texture Loaders with Path Resolution ───────
+  _loadTexture(relPath) {
+    if (!this.textureLoader) return null;
+    if (this.textureCache[relPath]) return this.textureCache[relPath];
+
+    // Detect depth from URL
+    const pathname = window.location.pathname.replace(/\\/g, '/');
+    let prefix = 'textures/';
+    if (pathname.includes('/viz/')) {
+      prefix = '../../textures/';
+    } else if (pathname.includes('/pages/')) {
+      prefix = '../textures/';
+    }
+
+    const fullUrl = prefix + relPath;
+    const tex = this.textureLoader.load(fullUrl);
+    tex.anisotropy = (this.renderer && this.renderer.capabilities) ? this.renderer.capabilities.getMaxAnisotropy() : 4;
+    this.textureCache[relPath] = tex;
+    return tex;
+  }
+
+  _getProductScreenTexture(product) {
+    if (!product || !product.id) return null;
+    const pid = product.id.toLowerCase();
+    const name = product.name.toLowerCase().replace(/ /g, '_');
+    const filename = `screen_${pid}_${name}.jpg`;
+    return this._loadTexture(filename);
+  }
+
+  _getKeyboardTexture() {
+    return this._loadTexture('keyboard_layout.jpg');
+  }
+
+  _getBrandBadgeTexture(brand) {
+    const b = (brand || 'brand').toLowerCase().replace(/ /g, '_');
+    const filename = `badge_${b}.jpg`;
+    return this._loadTexture(filename);
+  }
+
   // ── Realistic Procedural Model Builders ────────
   buildDetailedModel(product) {
     const cat = (product.category || '').toLowerCase();
@@ -126,6 +167,9 @@ class Scene3D {
     const brandCol = brandColor(product.brand);
     const bColor = new THREE.Color(brandCol);
     const isApple = (product.brand || '').toLowerCase() === 'apple';
+
+    // Fetch customized texture for this product
+    const screenTex = this._getProductScreenTexture(product);
 
     if (cat.includes('smart') && !cat.includes('watch')) {
       // ══════════════════════════════════════════════
@@ -142,21 +186,22 @@ class Scene3D {
       chassis.castShadow = true;
       group.add(chassis);
 
-      // Edge Band
+      // Edge Band (Titanium / Polished Metal)
       const frameMat = new THREE.MeshStandardMaterial({ color: bColor, metalness: 0.95, roughness: 0.1 });
       const frame = new THREE.Mesh(new THREE.BoxGeometry(1.07, 2.17, 0.08), frameMat);
       group.add(frame);
 
-      // Glass Screen Front
+      // Textured Screen Display Face (PlaneGeometry with authentic wallpaper)
       const screenMat = new THREE.MeshStandardMaterial({
-        color: 0x0a0c18,
-        emissive: isApple ? 0x152244 : 0x1a1236,
-        emissiveIntensity: 0.55,
-        roughness: 0.05,
-        metalness: 0.9
+        map: screenTex,
+        emissiveMap: screenTex,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 0.45,
+        roughness: 0.12,
+        metalness: 0.25
       });
-      const screen = new THREE.Mesh(new THREE.BoxGeometry(0.96, 2.02, 0.01), screenMat);
-      screen.position.z = 0.06;
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.98, 2.06), screenMat);
+      screen.position.z = 0.058;
       group.add(screen);
 
       // Dynamic Island / Camera Punch Hole
@@ -206,19 +251,20 @@ class Scene3D {
       frame.castShadow = true;
       group.add(frame);
 
-      // Display Screen
+      // Textured 4K HDR Display Screen
       const screenMat = new THREE.MeshStandardMaterial({
-        color: 0x03040c,
-        emissive: bColor,
-        emissiveIntensity: 0.28,
-        roughness: 0.08,
-        metalness: 0.95
+        map: screenTex,
+        emissiveMap: screenTex,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 0.42,
+        roughness: 0.1,
+        metalness: 0.2
       });
-      const screen = new THREE.Mesh(new THREE.BoxGeometry(w - 0.08, h - 0.08, 0.01), screenMat);
-      screen.position.z = 0.04;
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.06, h - 0.06), screenMat);
+      screen.position.z = 0.038;
       group.add(screen);
 
-      // Stand / Feet
+      // Metallic Feet / Stand
       const standMat = new THREE.MeshStandardMaterial({ color: 0x888894, metalness: 0.95, roughness: 0.15 });
       [-w * 0.35, w * 0.35].forEach(x => {
         const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.65), standMat);
@@ -243,17 +289,17 @@ class Scene3D {
       base.castShadow = true;
       group.add(base);
 
-      // Keyboard Area
-      const kbMat = new THREE.MeshStandardMaterial({ color: 0x1a1a22, metalness: 0.3, roughness: 0.7 });
-      const kb = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.01, 0.85), kbMat);
-      kb.position.set(0, 0.045, -0.2);
+      // Keyboard Area with Texture
+      const kbTex = this._getKeyboardTexture();
+      const kbMat = new THREE.MeshStandardMaterial({
+        map: kbTex,
+        metalness: 0.2,
+        roughness: 0.6
+      });
+      const kb = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 1.4), kbMat);
+      kb.rotation.x = -Math.PI / 2;
+      kb.position.set(0, 0.045, 0.02);
       group.add(kb);
-
-      // Trackpad
-      const tpMat = new THREE.MeshStandardMaterial({ color: 0x5a5d66, metalness: 0.5, roughness: 0.3 });
-      const tp = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.01, 0.45), tpMat);
-      tp.position.set(0, 0.045, 0.45);
-      group.add(tp);
 
       // Screen Lid (Angled 115 deg)
       const lidGroup = new THREE.Group();
@@ -264,15 +310,17 @@ class Scene3D {
       lid.position.y = 0.72;
       lidGroup.add(lid);
 
+      // Textured Laptop Screen (macOS / Windows 11 wallpaper)
       const scrMat = new THREE.MeshStandardMaterial({
-        color: 0x050814,
-        emissive: bColor,
-        emissiveIntensity: 0.35,
-        metalness: 0.9,
-        roughness: 0.05
+        map: screenTex,
+        emissiveMap: screenTex,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 0.42,
+        metalness: 0.2,
+        roughness: 0.1
       });
-      const scr = new THREE.Mesh(new THREE.BoxGeometry(2.18, 1.35, 0.01), scrMat);
-      scr.position.set(0, 0.72, 0.03);
+      const scr = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.37), scrMat);
+      scr.position.set(0, 0.72, 0.028);
       lidGroup.add(scr);
 
       group.add(lidGroup);
@@ -293,6 +341,14 @@ class Scene3D {
       const bandGeo = new THREE.TubeGeometry(curve, 32, 0.07, 12, false);
       group.add(new THREE.Mesh(bandGeo, matMain));
 
+      // Brand Badge Texture on Ear Cups
+      const badgeTex = this._getBrandBadgeTexture(product.brand);
+      const badgeMat = new THREE.MeshStandardMaterial({
+        map: badgeTex,
+        metalness: 0.8,
+        roughness: 0.25
+      });
+
       // Ear Cups & Cushions
       [-1, 1].forEach(side => {
         const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.22, 28), matMain);
@@ -300,6 +356,13 @@ class Scene3D {
         cup.rotation.z = Math.PI / 2;
         group.add(cup);
 
+        // Circular Brand Cap on outside
+        const badgeMesh = new THREE.Mesh(new THREE.CircleGeometry(0.36, 28), badgeMat);
+        badgeMesh.position.set(side * (0.95 + side * 0.115), -0.05, 0);
+        badgeMesh.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2;
+        group.add(badgeMesh);
+
+        // Cushion
         const cushion = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.1, 14, 24), matCushion);
         cushion.position.set(side * (0.95 - side * 0.12), -0.05, 0);
         cushion.rotation.y = Math.PI / 2;
@@ -311,22 +374,24 @@ class Scene3D {
       // ⌚ REALISTIC SMARTWATCH
       // ══════════════════════════════════════════════
       const caseMat = new THREE.MeshStandardMaterial({ color: 0x282930, metalness: 0.85, roughness: 0.2 });
-      const dialMat = new THREE.MeshStandardMaterial({
-        color: 0x020308,
-        emissive: bColor,
-        emissiveIntensity: 0.5,
-        roughness: 0.05,
-        metalness: 0.95
-      });
       const strapMat = new THREE.MeshStandardMaterial({ color: 0x1e2029, roughness: 0.85, metalness: 0.05 });
 
       // Case
       const watchCase = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.2, 36), caseMat);
       group.add(watchCase);
 
-      // Screen Face
-      const face = new THREE.Mesh(new THREE.CylinderGeometry(0.57, 0.57, 0.01, 36), dialMat);
-      face.position.y = 0.105;
+      // Textured Watch Face Dial (Activity rings, Chronograph clock)
+      const dialMat = new THREE.MeshStandardMaterial({
+        map: screenTex,
+        emissiveMap: screenTex,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 0.5,
+        roughness: 0.1,
+        metalness: 0.2
+      });
+      const face = new THREE.Mesh(new THREE.CircleGeometry(0.58, 36), dialMat);
+      face.rotation.x = -Math.PI / 2;
+      face.position.y = 0.106;
       group.add(face);
 
       // Digital Crown
@@ -351,15 +416,17 @@ class Scene3D {
       slate.castShadow = true;
       group.add(slate);
 
+      // Textured Tablet Display
       const scrMat = new THREE.MeshStandardMaterial({
-        color: 0x030612,
-        emissive: bColor,
-        emissiveIntensity: 0.35,
-        metalness: 0.92,
-        roughness: 0.05
+        map: screenTex,
+        emissiveMap: screenTex,
+        emissive: new THREE.Color(0xffffff),
+        emissiveIntensity: 0.42,
+        metalness: 0.2,
+        roughness: 0.1
       });
-      const scr = new THREE.Mesh(new THREE.BoxGeometry(1.68, 2.38, 0.01), scrMat);
-      scr.position.z = 0.05;
+      const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.72, 2.42), scrMat);
+      scr.position.z = 0.052;
       group.add(scr);
     }
 
